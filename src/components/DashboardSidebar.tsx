@@ -3,10 +3,10 @@ import { NavLink } from '@/components/NavLink';
 import { cn } from '@/lib/utils';
 
 const navigationItems = [
-  { title: 'Fleet Overview', icon: Home, path: '/' },
-  { title: 'Live Map', icon: Map, path: '/map' },
+  { title: 'Fleet Overview', icon: Home, path: '/fleet-overview' },
+  { title: 'Live Map', icon: Map, path: '/' },
   { title: 'Maintenance AI', icon: Wrench, path: '/maintenance' },
-  { title: 'Fuel Analytics', icon: Droplet, path: '/fuel' },
+  { title: 'Fuel Analytics', icon: Droplet, path: '/fuel-analytics' },
   { title: 'Settings', icon: Settings, path: '/settings' },
 ];
 
