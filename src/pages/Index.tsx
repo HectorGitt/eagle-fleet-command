@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { DashboardSidebar } from '@/components/DashboardSidebar';
 import { TopBar } from '@/components/TopBar';
-import { MapArea } from '@/components/MapArea';
+import MapArea from '@/components/MapArea';
 import { TelemetricsPanel } from '@/components/TelemetricsPanel';
 import { FleetList } from '@/components/FleetList';
 import { type TractorTelemetry } from '@/lib/telemetry';

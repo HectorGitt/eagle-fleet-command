@@ -1,13 +1,18 @@
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { TopBar } from "@/components/TopBar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Brain, AlertTriangle, Calendar, Wrench, TrendingUp } from "lucide-react";
-import { generateTractorTelemetry, predictMaintenance } from "@/lib/telemetry";
+import { ScheduleMaintenanceModal } from "@/components/ScheduleMaintenanceModal";
 
 const MaintenanceAI = () => {
+  const [searchParams] = useSearchParams();
+  const selectedTractorId = searchParams.get("tractorId");
+  const [selectedTractorForMaintenance, setSelectedTractorForMaintenance] = useState<string | null>(null);
+
   const [predictions, setPredictions] = useState([
     {
       tractorId: "T-800",
@@ -38,6 +43,27 @@ const MaintenanceAI = () => {
     },
   ]);
 
+  useEffect(() => {
+    // If a tractor was selected from Fleet Overview, add a manual report if not already present
+    if (selectedTractorId) {
+      setPredictions(prev => {
+        if (prev.some(p => p.tractorId === selectedTractorId)) return prev;
+        return [
+          {
+            tractorId: selectedTractorId,
+            model: "Unknown Model", // In a real app, we'd fetch this
+            prediction: "Manual Maintenance Request",
+            confidence: 100,
+            daysToFailure: 0,
+            priority: "high",
+            recommendation: "Operator reported issue. Inspect immediately.",
+          },
+          ...prev
+        ];
+      });
+    }
+  }, [selectedTractorId]);
+
   const [upcomingMaintenance] = useState([
     { tractorId: "T-801", task: "Oil Change", dueDate: "2025-12-01", status: "scheduled" },
     { tractorId: "T-805", task: "Hydraulic Filter Replacement", dueDate: "2025-12-03", status: "scheduled" },
@@ -47,10 +73,10 @@ const MaintenanceAI = () => {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setPredictions(prev => 
+      setPredictions(prev =>
         prev.map(p => ({
           ...p,
-          confidence: Math.min(99, Math.max(70, p.confidence + (Math.random() * 4 - 2))),
+          confidence: p.prediction === "Manual Maintenance Request" ? 100 : Math.min(99, Math.max(70, p.confidence + (Math.random() * 4 - 2))),
         }))
       );
     }, 8000);
@@ -67,7 +93,7 @@ const MaintenanceAI = () => {
   };
 
   const getStatusColor = (status: string) => {
-    return status === "overdue" 
+    return status === "overdue"
       ? "bg-status-maintenance/20 text-status-maintenance border-status-maintenance"
       : "bg-status-operational/20 text-status-operational border-status-operational";
   };
@@ -75,10 +101,10 @@ const MaintenanceAI = () => {
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
       <DashboardSidebar />
-      
+
       <div className="flex-1 flex flex-col ml-64">
         <TopBar />
-        
+
         <main className="flex-1 p-6 overflow-auto">
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-2">
@@ -110,7 +136,7 @@ const MaintenanceAI = () => {
                       </div>
                       <p className="text-sm text-muted-foreground">{pred.model}</p>
                     </div>
-                    {pred.daysToFailure && (
+                    {pred.daysToFailure !== null && pred.daysToFailure !== undefined && (
                       <div className="text-right">
                         <div className="text-2xl font-bold text-status-maintenance">{pred.daysToFailure}</div>
                         <div className="text-xs text-muted-foreground">Days to Failure</div>
@@ -134,7 +160,11 @@ const MaintenanceAI = () => {
                   </div>
 
                   <div className="flex gap-2">
-                    <Button variant="default" size="sm">
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => setSelectedTractorForMaintenance(pred.tractorId)}
+                    >
                       <Calendar className="w-4 h-4 mr-2" />
                       Schedule Maintenance
                     </Button>
@@ -214,6 +244,12 @@ const MaintenanceAI = () => {
           </div>
         </main>
       </div>
+
+      <ScheduleMaintenanceModal
+        tractorId={selectedTractorForMaintenance}
+        isOpen={!!selectedTractorForMaintenance}
+        onClose={() => setSelectedTractorForMaintenance(null)}
+      />
     </div>
   );
 };

@@ -1,11 +1,12 @@
-import { Home, Map, Wrench, Droplet, Settings } from 'lucide-react';
+import { Home, Map, Wrench, Droplet, Settings, Calendar } from 'lucide-react';
 import { NavLink } from '@/components/NavLink';
 import { cn } from '@/lib/utils';
 
 const navigationItems = [
-  { title: 'Fleet Overview', icon: Home, path: '/fleet-overview' },
-  { title: 'Live Map', icon: Map, path: '/' },
+  { title: 'Fleet Overview', icon: Home, path: '/' },
+  { title: 'Live Map', icon: Map, path: '/live-map' },
   { title: 'Maintenance AI', icon: Wrench, path: '/maintenance' },
+  { title: 'Scheduling', icon: Calendar, path: '/scheduling' },
   { title: 'Fuel Analytics', icon: Droplet, path: '/fuel-analytics' },
   { title: 'Settings', icon: Settings, path: '/settings' },
 ];

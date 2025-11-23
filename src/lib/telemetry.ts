@@ -11,6 +11,14 @@ export interface TractorTelemetry {
   fuelLevel: number; // Percentage
   gpsCoordinates: { lat: number; lng: number };
   timestamp: Date;
+
+  // Enhanced Analytics Fields
+  activity: 'Ploughing' | 'Harrowing' | 'Transport' | 'Idle' | 'Maintenance';
+  workDone: number; // Hectares covered
+  farmSize: number; // Total hectares assigned
+  fuelConsumed: number; // Total litres consumed today
+  enginePower: number; // Horsepower (HP)
+  efficiency: number; // Hectares per Litre
 }
 
 export interface MaintenanceAlert {
@@ -26,37 +34,91 @@ export interface RouteOptimization {
   savingsPercentage: number;
 }
 
-// Nigerian farm region bounds (example: Niger State agricultural zone)
+// Ogun State farm region bounds (approx center around Abeokuta)
 const FARM_BOUNDS = {
-  lat: { min: 9.0, max: 9.5 },
-  lng: { min: 5.5, max: 6.0 },
+  lat: { min: 7.10, max: 7.30 },
+  lng: { min: 3.20, max: 3.50 },
 };
 
 /**
  * Generates realistic mock telemetry data for a tractor
  * Simulates sensor readings with natural fluctuations
  */
-export function generateTractorTelemetry(tractorId: string): TractorTelemetry {
-  // Engine temperature: Diesel engines operate optimally at 85-95°C
-  // Can spike to 110°C under heavy load (thermal stress threshold)
+export function generateTractorTelemetry(
+  tractorId: string,
+  previousTelemetry?: TractorTelemetry
+): TractorTelemetry {
+  // Static properties
+  const farmSize = 500;
+  const enginePower = 300;
+
+  if (previousTelemetry) {
+    // Smooth transitions for existing tractor
+    let engineTemp = previousTelemetry.engineTemp + (Math.random() * 4 - 2);
+    engineTemp = Math.max(80, Math.min(115, engineTemp));
+
+    let oilPressure = previousTelemetry.oilPressure + (Math.random() * 4 - 2);
+    oilPressure = Math.max(25, Math.min(65, oilPressure));
+
+    let hydraulicLoad = previousTelemetry.hydraulicLoad + (Math.random() * 10 - 5);
+    hydraulicLoad = Math.max(0, Math.min(100, hydraulicLoad));
+
+    const fuelConsumptionRate = 0.05 + (hydraulicLoad / 100) * 0.1;
+    const fuelLevel = Math.max(0, previousTelemetry.fuelLevel - (fuelConsumptionRate / 300) * 100);
+    const fuelConsumed = previousTelemetry.fuelConsumed + fuelConsumptionRate;
+
+    let workDone = previousTelemetry.workDone;
+    if (previousTelemetry.activity === 'Ploughing' || previousTelemetry.activity === 'Harrowing') {
+      workDone += 0.01;
+    }
+
+    // GPS: Random walk (simulate driving)
+    const speedFactor = 0.0005;
+    let lat = previousTelemetry.gpsCoordinates.lat + (Math.random() * speedFactor * 2 - speedFactor);
+    let lng = previousTelemetry.gpsCoordinates.lng + (Math.random() * speedFactor * 2 - speedFactor);
+
+    lat = Math.max(FARM_BOUNDS.lat.min, Math.min(FARM_BOUNDS.lat.max, lat));
+    lng = Math.max(FARM_BOUNDS.lng.min, Math.min(FARM_BOUNDS.lng.max, lng));
+
+    let activity = previousTelemetry.activity;
+    if (Math.random() < 0.05) {
+      const activities: TractorTelemetry['activity'][] = ['Ploughing', 'Harrowing', 'Transport', 'Idle'];
+      activity = activities[Math.floor(Math.random() * activities.length)];
+    }
+    if (engineTemp > 110) activity = 'Maintenance';
+
+    const efficiency = fuelConsumed > 0 ? workDone / fuelConsumed : 0;
+
+    return {
+      tractorId,
+      engineTemp,
+      oilPressure,
+      hydraulicLoad,
+      fuelLevel,
+      gpsCoordinates: { lat, lng },
+      timestamp: new Date(),
+      activity,
+      workDone,
+      farmSize,
+      fuelConsumed,
+      enginePower,
+      efficiency
+    };
+  }
+
+  // Initial random state
   const engineTemp = 85 + Math.random() * 25;
-
-  // Oil pressure: Modern hydraulic systems require 30-60 PSI
-  // Below 35 PSI indicates viscosity breakdown or pump failure
   const oilPressure = 30 + Math.random() * 30;
-
-  // Hydraulic load: 0-100% representing actuator strain
-  // >90% indicates cavitation risk (air bubble formation in fluid)
   const hydraulicLoad = Math.random() * 100;
-
-  // Fuel level: Percentage of tank capacity
   const fuelLevel = 20 + Math.random() * 80;
 
-  // GPS coordinates: Randomized within farm boundaries
   const gpsCoordinates = {
     lat: FARM_BOUNDS.lat.min + Math.random() * (FARM_BOUNDS.lat.max - FARM_BOUNDS.lat.min),
     lng: FARM_BOUNDS.lng.min + Math.random() * (FARM_BOUNDS.lng.max - FARM_BOUNDS.lng.min),
   };
+
+  const activities: TractorTelemetry['activity'][] = ['Ploughing', 'Harrowing', 'Transport', 'Idle'];
+  const activity = activities[Math.floor(Math.random() * activities.length)];
 
   return {
     tractorId,
@@ -66,12 +128,21 @@ export function generateTractorTelemetry(tractorId: string): TractorTelemetry {
     fuelLevel,
     gpsCoordinates,
     timestamp: new Date(),
+    activity,
+    workDone: Math.random() * 100,
+    farmSize,
+    fuelConsumed: Math.random() * 500,
+    enginePower,
+    efficiency: 0.5 + Math.random() * 0.5
   };
+}
+
+export function updateTelemetry(current: TractorTelemetry): TractorTelemetry {
+  return generateTractorTelemetry(current.tractorId, current);
 }
 
 /**
  * Predictive maintenance engine using physics-based diagnostics
- * Analyzes telemetry data against known failure modes
  */
 export function predictMaintenance(
   telemetry: TractorTelemetry,
@@ -79,25 +150,14 @@ export function predictMaintenance(
 ): MaintenanceAlert {
   const { engineTemp, oilPressure, hydraulicLoad } = telemetry;
 
-  // RULE 1: Thermal Viscosity Breakdown
-  // Physics: High temperature reduces oil viscosity (μ ∝ 1/T)
-  // When μ drops, hydrodynamic lubrication fails, causing metal-to-metal contact
-  // Critical threshold: T > 105°C AND P < 35 PSI
   if (engineTemp > 105 && oilPressure < 35) {
     return {
       severity: 'critical',
       message: 'Critical Alert: Thermal Viscosity Breakdown',
-      technicalReason:
-        'Oil viscosity has degraded beyond safe operating limits due to excessive heat. ' +
-        'Hydrodynamic film strength insufficient for bearing protection. ' +
-        'Risk: Bearing seizure within 2-4 hours of operation.',
+      technicalReason: 'Oil viscosity degraded due to heat. Risk of bearing seizure.',
     };
   }
 
-  // RULE 2: Hydraulic Pump Cavitation Risk
-  // Physics: Cavitation occurs when fluid pressure drops below vapor pressure
-  // This creates vapor bubbles that implode violently, eroding pump surfaces
-  // Sustained high load (>90%) increases suction-side pressure drop
   const loadHistory = historicalLoad || [hydraulicLoad];
   const recentHighLoad = loadHistory.slice(-3).filter((load) => load > 90).length;
 
@@ -105,25 +165,18 @@ export function predictMaintenance(
     return {
       severity: 'warning',
       message: 'Warning: Pump Cavitation Risk Detected',
-      technicalReason:
-        'Sustained hydraulic load >90% has caused pressure drop in suction line. ' +
-        'Bernoulli principle: High velocity → Low pressure → Vapor formation. ' +
-        'Risk: Pump impeller damage, reduced efficiency by 15-20% within 48 hours.',
+      technicalReason: 'Sustained high hydraulic load causing suction pressure drop.',
     };
   }
 
-  // Additional diagnostic: Early warning for thermal stress
   if (engineTemp > 100) {
     return {
       severity: 'warning',
       message: 'Elevated Operating Temperature',
-      technicalReason:
-        'Engine temperature approaching thermal stress threshold. ' +
-        'Monitor coolant system and reduce load if possible.',
+      technicalReason: 'Engine temp approaching thermal stress threshold.',
     };
   }
 
-  // RULE 3: Systems Nominal
   return {
     severity: 'normal',
     message: 'Systems Nominal',
@@ -133,26 +186,18 @@ export function predictMaintenance(
 
 /**
  * Route optimization using Nearest Neighbor TSP approximation
- * Minimizes total travel distance for multi-destination trips
  */
 export function optimizeRoute(
   start: { lat: number; lng: number },
   destinations: { lat: number; lng: number }[]
 ): RouteOptimization {
-  // Calculate Euclidean distance between two GPS coordinates
-  const calculateDistance = (
-    p1: { lat: number; lng: number },
-    p2: { lat: number; lng: number }
-  ): number => {
-    // Simplified Euclidean distance (for small regions, acceptable approximation)
-    // For production: use Haversine formula for spherical Earth
+  const calculateDistance = (p1: { lat: number; lng: number }, p2: { lat: number; lng: number }) => {
     const dx = p2.lng - p1.lng;
     const dy = p2.lat - p1.lat;
     return Math.sqrt(dx * dx + dy * dy);
   };
 
-  // Calculate total distance for a given route order
-  const totalRouteDistance = (points: { lat: number; lng: number }[]): number => {
+  const totalRouteDistance = (points: { lat: number; lng: number }[]) => {
     let distance = 0;
     for (let i = 0; i < points.length - 1; i++) {
       distance += calculateDistance(points[i], points[i + 1]);
@@ -160,17 +205,14 @@ export function optimizeRoute(
     return distance;
   };
 
-  // Baseline: Linear path (original order)
   const linearPath = [start, ...destinations];
   const linearDistance = totalRouteDistance(linearPath);
 
-  // Nearest Neighbor Heuristic for TSP
   const optimizedOrder: { lat: number; lng: number }[] = [];
   const unvisited = [...destinations];
   let current = start;
 
   while (unvisited.length > 0) {
-    // Find nearest unvisited destination
     let nearestIndex = 0;
     let nearestDistance = calculateDistance(current, unvisited[0]);
 
@@ -182,7 +224,6 @@ export function optimizeRoute(
       }
     }
 
-    // Move to nearest and mark as visited
     const nearest = unvisited.splice(nearestIndex, 1)[0];
     optimizedOrder.push(nearest);
     current = nearest;
@@ -190,7 +231,6 @@ export function optimizeRoute(
 
   const optimizedPath = [start, ...optimizedOrder];
   const optimizedDistance = totalRouteDistance(optimizedPath);
-
   const distanceSaved = linearDistance - optimizedDistance;
   const savingsPercentage = (distanceSaved / linearDistance) * 100;
 
