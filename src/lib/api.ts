@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 /**
- * Axios instance configured for EagleView API endpoints
+ * Axios instance configured for EagleSight API endpoints
  * Base URL points to demo/mock API - replace with production endpoint when ready
  */
 const api = axios.create({
@@ -40,7 +40,7 @@ api.interceptors.response.use(
 );
 
 /**
- * API endpoints for EagleView
+ * API endpoints for EagleSight
  * Currently returns demo data - integrate with real endpoints as needed
  */
 export const tractorAPI = {

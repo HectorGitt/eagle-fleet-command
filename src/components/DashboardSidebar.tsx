@@ -18,7 +18,7 @@ export function DashboardSidebar() {
       <div className="p-6 border-b border-border/40">
         <h1 className="text-2xl font-bold text-primary-glow flex items-center gap-2">
           <span className="text-3xl">🦅</span>
-          EagleView
+          EagleSight
         </h1>
         <p className="text-xs text-muted-foreground mt-1">Fleet Intelligence</p>
       </div>

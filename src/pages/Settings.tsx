@@ -12,17 +12,17 @@ const Settings = () => {
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
       <DashboardSidebar />
-      
+
       <div className="flex-1 flex flex-col ml-64">
         <TopBar />
-        
+
         <main className="flex-1 p-6 overflow-auto">
           <div className="mb-6">
             <div className="flex items-center gap-3 mb-2">
               <SettingsIcon className="w-8 h-8 text-primary" />
               <h1 className="text-3xl font-bold text-foreground">Settings</h1>
             </div>
-            <p className="text-muted-foreground">Manage your EagleView dashboard preferences and configuration</p>
+            <p className="text-muted-foreground">Manage your EagleSight dashboard preferences and configuration</p>
           </div>
 
           <Tabs defaultValue="general" className="space-y-6">
@@ -200,7 +200,7 @@ const Settings = () => {
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="api-endpoint">API Endpoint</Label>
-                    <Input id="api-endpoint" defaultValue="https://api.eagleview.ng/v1" />
+                    <Input id="api-endpoint" defaultValue="https://api.eaglesight.ng/v1" />
                   </div>
                   <Button variant="outline">Regenerate API Key</Button>
                 </div>
