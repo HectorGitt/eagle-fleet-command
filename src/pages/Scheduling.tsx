@@ -236,6 +236,8 @@ const Scheduling = () => {
         efficiency: 45,
         conflicts: 2
     });
+    const [unassignedJobs, setUnassignedJobs] = useState<Job[]>([]);
+    const [groundedTractors, setGroundedTractors] = useState<any[]>([]);
 
     // Initial Data with Real Locations (Ikeja/Alausa Industrial Zone)
     const [schedules, setSchedules] = useState<TractorSchedule[]>([
@@ -394,20 +396,21 @@ const Scheduling = () => {
             const data = await response.json();
 
             setSchedules(data.tractors);
+            setUnassignedJobs(data.unassigned || []);
+            setGroundedTractors(data.grounded || []);
             setOptimizationStats(data.stats);
 
-            toast.success("VRP Optimization Complete", {
-                description: `Routes optimized with Haversine distance & Time Windows. Efficiency: ${data.stats.efficiency}%`,
-                icon: <Zap className="w-5 h-5 text-yellow-500" />
-            });
-
-        } catch (error) {
-            console.error("Optimization error:", error);
-            toast.error("Optimization Failed", {
-                description: "Could not connect to VRP Backend.",
-                icon: <AlertTriangle className="w-5 h-5 text-red-500" />
-            });
-            setTimeout(() => setIsOptimizing(false), 1000);
+            if ((data.unassigned && data.unassigned.length > 0) || (data.grounded && data.grounded.length > 0)) {
+                toast.warning(`Optimization Complete: Issues Detected`, {
+                    description: `${data.unassigned?.length || 0} unassigned jobs, ${data.grounded?.length || 0} grounded tractors.`,
+                    icon: <AlertTriangle className="w-5 h-5 text-orange-500" />
+                });
+            } else {
+                toast.success("VRP Optimization Complete", {
+                    description: `Routes optimized with Haversine distance & Time Windows. Efficiency: ${data.stats.efficiency}%`,
+                    icon: <Zap className="w-5 h-5 text-yellow-500" />
+                });
+            }
         } finally {
             setIsOptimizing(false);
         }
@@ -620,6 +623,67 @@ const Scheduling = () => {
                             </div>
                         </Card>
                     </div>
+
+                    {/* Unassigned Jobs Alert */}
+                    {unassignedJobs.length > 0 && (
+                        <Card className="mb-8 border-status-maintenance/50 bg-status-maintenance/5 p-6">
+                            <div className="flex items-center gap-3 mb-4">
+                                <AlertTriangle className="w-6 h-6 text-status-maintenance" />
+                                <h2 className="text-xl font-bold text-status-maintenance">Capacity Overflow / Unassigned Jobs</h2>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {unassignedJobs.map((job) => (
+                                    <div key={job.id} className="bg-background/50 border border-status-maintenance/30 rounded-lg p-4 flex flex-col gap-2">
+                                        <div className="flex justify-between items-start">
+                                            <span className="font-bold text-foreground">{job.fieldId}</span>
+                                            <Badge variant="outline" className="border-status-maintenance text-status-maintenance">
+                                                Unassigned
+                                            </Badge>
+                                        </div>
+                                        <div className="text-sm text-muted-foreground">
+                                            {job.type} • {job.durationHours}h
+                                        </div>
+                                        {job.constraintWarning && (
+                                            <div className="text-xs text-status-maintenance mt-1 font-medium">
+                                                Reason: {job.constraintWarning}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+                    )}
+
+                    {/* Grounded Machines Alert */}
+                    {groundedTractors.length > 0 && (
+                        <Card className="mb-8 border-red-500/50 bg-red-500/5 p-6">
+                            <div className="flex items-center gap-3 mb-4">
+                                <AlertTriangle className="w-6 h-6 text-red-500" />
+                                <h2 className="text-xl font-bold text-red-500">Grounded Fleet / Maintenance Alerts</h2>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {groundedTractors.map((tractor) => (
+                                    <div key={tractor.tractorId} className="bg-background/50 border border-red-500/30 rounded-lg p-4 flex flex-col gap-2">
+                                        <div className="flex justify-between items-start">
+                                            <span className="font-bold text-foreground">{tractor.tractorId}</span>
+                                            <Badge variant="outline" className="border-red-500 text-red-500">
+                                                GROUNDED
+                                            </Badge>
+                                        </div>
+                                        <div className="text-sm text-red-400 font-medium">
+                                            {tractor.reason}
+                                        </div>
+                                        {tractor.telemetry && (
+                                            <div className="grid grid-cols-2 gap-2 mt-2 text-xs text-muted-foreground bg-background/50 p-2 rounded">
+                                                <div>Temp: {tractor.telemetry.engineTemp}°C</div>
+                                                <div>Pressure: {tractor.telemetry.hydraulicPressure} psi</div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </Card>
+                    )}
 
                     {/* Gantt Chart / Timeline */}
                     <Card className="glass-panel p-6 overflow-hidden">
