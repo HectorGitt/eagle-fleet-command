@@ -624,7 +624,7 @@ const Scheduling = () => {
                     {/* Gantt Chart / Timeline */}
                     <Card className="glass-panel p-6 overflow-hidden">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-bold text-foreground">Daily Schedule Timeline (24-Hour View)</h2>
+                            <h2 className="text-xl font-bold text-foreground">Daily Schedule Timeline (06:00 - 18:00)</h2>
                             <div className="flex gap-4 text-xs">
                                 <div className="flex items-center gap-2">
                                     <div className="w-3 h-3 bg-blue-500/20 border border-blue-500 rounded"></div>
@@ -647,10 +647,10 @@ const Scheduling = () => {
 
                         <div className="relative">
                             {/* Time Grid */}
-                            <div className="grid grid-cols-24 gap-0 mb-4 border-b border-border/30 pb-2">
-                                {Array.from({ length: 24 }).map((_, i) => (
+                            <div className="grid grid-cols-12 gap-0 mb-4 border-b border-border/30 pb-2">
+                                {Array.from({ length: 12 }).map((_, i) => (
                                     <div key={i} className="text-xs text-muted-foreground font-mono">
-                                        {i.toString().padStart(2, '0')}:00
+                                        {(i + 6).toString().padStart(2, '0')}:00
                                     </div>
                                 ))}
                             </div>
@@ -680,21 +680,22 @@ const Scheduling = () => {
                                         {/* Timeline Track */}
                                         <div className="h-12 bg-accent/5 rounded-lg relative w-full border border-border/20 overflow-hidden">
                                             {/* Hour Markers (Background) */}
-                                            <div className="absolute inset-0 grid grid-cols-24 gap-0 pointer-events-none">
-                                                {Array.from({ length: 24 }).map((_, i) => (
+                                            <div className="absolute inset-0 grid grid-cols-12 gap-0 pointer-events-none">
+                                                {Array.from({ length: 12 }).map((_, i) => (
                                                     <div key={i} className="border-r border-border/10 h-full"></div>
                                                 ))}
                                             </div>
 
                                             {/* Jobs */}
                                             {tractor.jobs.map((job) => {
-                                                // Calculate position and width based on 24-hour view (00:00 - 24:00)
-                                                const startOffset = job.startTime;
+                                                // Calculate position and width based on 06:00 start (index 0) to 18:00 (index 12)
+                                                // Total 12 hours displayed
+                                                const startOffset = job.startTime - 6;
                                                 const width = job.durationHours;
 
                                                 // Convert to percentage
-                                                const leftPercent = (startOffset / 24) * 100;
-                                                const widthPercent = (width / 24) * 100;
+                                                const leftPercent = (startOffset / 12) * 100;
+                                                const widthPercent = (width / 12) * 100;
 
                                                 return (
                                                     <div
