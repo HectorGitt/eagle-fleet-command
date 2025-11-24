@@ -232,12 +232,12 @@ const RouteMap = ({ schedules }: { schedules: TractorSchedule[] }) => {
 const Scheduling = () => {
     const [isOptimizing, setIsOptimizing] = useState(false);
     const [optimizationStats, setOptimizationStats] = useState({
-        totalFuel: 450,
-        efficiency: 72,
+        totalFuel: 590,
+        efficiency: 45,
         conflicts: 2
     });
 
-    // Initial Data with Coords (Alausa Area)
+    // Initial Data with Real Locations (Ikeja/Alausa Industrial Zone)
     const [schedules, setSchedules] = useState<TractorSchedule[]>([
         {
             tractorId: "T-800",
@@ -245,8 +245,31 @@ const Scheduling = () => {
             maxHours: 8,
             maintenanceDueIn: 40,
             jobs: [
-                { id: "J1", fieldId: "North Acre", type: "Ploughing", durationHours: 4, startTime: 8, fuelCost: 120, profit: 500, status: "scheduled", latitude: 6.620, longitude: 3.360 },
-                { id: "J2", fieldId: "River Bank", type: "Harrowing", durationHours: 3, startTime: 13, fuelCost: 80, profit: 300, status: "scheduled", constraintWarning: "High Fuel Usage", latitude: 6.610, longitude: 3.350 }
+                {
+                    id: "J1",
+                    fieldId: "Oregun Ind. Estate", // 6.620, 3.360 is Oregun
+                    type: "Ploughing",
+                    durationHours: 4,
+                    startTime: 8,
+                    fuelCost: 120,
+                    profit: 500,
+                    status: "scheduled",
+                    latitude: 6.620,
+                    longitude: 3.360
+                },
+                {
+                    id: "J2",
+                    fieldId: "Alausa Secretariat", // 6.610, 3.350 is near the Secretariat
+                    type: "Harrowing",
+                    durationHours: 3,
+                    startTime: 13,
+                    fuelCost: 80,
+                    profit: 300,
+                    status: "scheduled",
+                    constraintWarning: "High Fuel Usage",
+                    latitude: 6.610,
+                    longitude: 3.350
+                }
             ]
         },
         {
@@ -255,7 +278,19 @@ const Scheduling = () => {
             maxHours: 10,
             maintenanceDueIn: 5,
             jobs: [
-                { id: "J3", fieldId: "South Pasture", type: "Seeding", durationHours: 6, startTime: 9, fuelCost: 150, profit: 800, status: "scheduled", constraintWarning: "Maintenance Risk", latitude: 6.605, longitude: 3.365 }
+                {
+                    id: "J3",
+                    fieldId: "Kudirat Abiola Way", // 6.605, 3.365 is near Ojota/Oregun link
+                    type: "Seeding",
+                    durationHours: 6,
+                    startTime: 9,
+                    fuelCost: 150,
+                    profit: 800,
+                    status: "scheduled",
+                    constraintWarning: "Maintenance Risk",
+                    latitude: 6.605,
+                    longitude: 3.365
+                }
             ]
         },
         {
@@ -264,8 +299,30 @@ const Scheduling = () => {
             maxHours: 8,
             maintenanceDueIn: 100,
             jobs: [
-                { id: "J4", fieldId: "Hillside Plot", type: "Harvesting", durationHours: 5, startTime: 7, fuelCost: 100, profit: 1200, status: "scheduled", latitude: 6.625, longitude: 3.345 },
-                { id: "J5", fieldId: "North Acre", type: "Seeding", durationHours: 2, startTime: 14, fuelCost: 40, profit: 200, status: "scheduled", latitude: 6.620, longitude: 3.360 }
+                {
+                    id: "J4",
+                    fieldId: "Agidingbi Project", // 6.625, 3.345 is Agidingbi area
+                    type: "Harvesting",
+                    durationHours: 5,
+                    startTime: 7,
+                    fuelCost: 100,
+                    profit: 1200,
+                    status: "scheduled",
+                    latitude: 6.625,
+                    longitude: 3.345
+                },
+                {
+                    id: "J5",
+                    fieldId: "Oregun Ind. Estate", // Returning to Oregun
+                    type: "Seeding",
+                    durationHours: 2,
+                    startTime: 14,
+                    fuelCost: 40,
+                    profit: 200,
+                    status: "scheduled",
+                    latitude: 6.620,
+                    longitude: 3.360
+                }
             ]
         }
     ]);
@@ -567,7 +624,7 @@ const Scheduling = () => {
                     {/* Gantt Chart / Timeline */}
                     <Card className="glass-panel p-6 overflow-hidden">
                         <div className="flex items-center justify-between mb-6">
-                            <h2 className="text-xl font-bold text-foreground">Daily Schedule Timeline (06:00 - 18:00)</h2>
+                            <h2 className="text-xl font-bold text-foreground">Daily Schedule Timeline (24-Hour View)</h2>
                             <div className="flex gap-4 text-xs">
                                 <div className="flex items-center gap-2">
                                     <div className="w-3 h-3 bg-blue-500/20 border border-blue-500 rounded"></div>
@@ -590,10 +647,10 @@ const Scheduling = () => {
 
                         <div className="relative">
                             {/* Time Grid */}
-                            <div className="grid grid-cols-12 gap-0 mb-4 border-b border-border/30 pb-2">
-                                {Array.from({ length: 12 }).map((_, i) => (
+                            <div className="grid grid-cols-24 gap-0 mb-4 border-b border-border/30 pb-2">
+                                {Array.from({ length: 24 }).map((_, i) => (
                                     <div key={i} className="text-xs text-muted-foreground font-mono">
-                                        {(i + 6).toString().padStart(2, '0')}:00
+                                        {i.toString().padStart(2, '0')}:00
                                     </div>
                                 ))}
                             </div>
@@ -623,22 +680,21 @@ const Scheduling = () => {
                                         {/* Timeline Track */}
                                         <div className="h-12 bg-accent/5 rounded-lg relative w-full border border-border/20 overflow-hidden">
                                             {/* Hour Markers (Background) */}
-                                            <div className="absolute inset-0 grid grid-cols-12 gap-0 pointer-events-none">
-                                                {Array.from({ length: 12 }).map((_, i) => (
+                                            <div className="absolute inset-0 grid grid-cols-24 gap-0 pointer-events-none">
+                                                {Array.from({ length: 24 }).map((_, i) => (
                                                     <div key={i} className="border-r border-border/10 h-full"></div>
                                                 ))}
                                             </div>
 
                                             {/* Jobs */}
                                             {tractor.jobs.map((job) => {
-                                                // Calculate position and width based on 06:00 start (index 0) to 18:00 (index 12)
-                                                // Total 12 hours displayed
-                                                const startOffset = job.startTime - 6;
+                                                // Calculate position and width based on 24-hour view (00:00 - 24:00)
+                                                const startOffset = job.startTime;
                                                 const width = job.durationHours;
 
                                                 // Convert to percentage
-                                                const leftPercent = (startOffset / 12) * 100;
-                                                const widthPercent = (width / 12) * 100;
+                                                const leftPercent = (startOffset / 24) * 100;
+                                                const widthPercent = (width / 24) * 100;
 
                                                 return (
                                                     <div
