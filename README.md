@@ -2,7 +2,7 @@
 
 ![EagleSight Banner](public/og-image.png)
 
-**[Live Preview](https://eaglesight.deniyi.link/) | [GitHub Repository](https://github.com/HectorGitt/eagle-fleet-command) | [Read the Case Study on Medium](#)**
+**[Live Preview](https://eaglesight.deniyi.link/) | [GitHub Repository](https://github.com/HectorGitt/eagle-fleet-command) | [Read the Case Study on Medium](https://medium.com/@deniyi_dev/building-eaglesight-a-next-gen-fleet-management-system-c29aa3b5ba80)**
 
 EagleSight is a comprehensive fleet management and agricultural logistics platform designed to optimize tractor operations, monitor real-time telemetry, and solve complex Vehicle Routing Problems (VRP) in modern agriculture. By bridging the gap between **Real-time Telemetry** and **Operations Research**, it solves the "Last Mile" problem of farm machinery—ensuring the right tractor is at the right field at the right time, while monitoring for critical mechanical failures.
 
