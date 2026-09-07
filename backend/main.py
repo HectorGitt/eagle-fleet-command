@@ -65,7 +65,12 @@ def optimize_schedule(request: OptimizationRequest):
         grounded = result["grounded"]
 
         assigned_jobs = [j for t in optimized_tractors for j in t['jobs']]
-        total_fuel = sum(j['fuelCost'] for j in assigned_jobs)
+
+        # Job fuel is the work itself; travel fuel is the driving between sites,
+        # charged against the road distance the solver actually routed.
+        job_fuel = sum(j['fuelCost'] for j in assigned_jobs)
+        travel_fuel = sum(t.get('travelFuelLitres', 0) for t in optimized_tractors)
+        total_distance = sum(t.get('routeDistanceKm', 0) for t in optimized_tractors)
 
         routable = len([j for j in all_jobs if j.status != 'completed'])
         scheduled = len([j for j in assigned_jobs if j['status'] != 'completed'])
@@ -76,7 +81,10 @@ def optimize_schedule(request: OptimizationRequest):
             "unassigned": unassigned,
             "grounded": grounded,
             "stats": {
-                "totalFuel": int(total_fuel),
+                "totalFuel": int(round(job_fuel + travel_fuel)),
+                "jobFuel": int(round(job_fuel)),
+                "travelFuel": round(travel_fuel, 1),
+                "totalDistanceKm": round(total_distance, 1),
                 "efficiency": efficiency,
                 "conflicts": len(unassigned) + len(grounded),
                 # Whether the stop ordering came from road distances or the

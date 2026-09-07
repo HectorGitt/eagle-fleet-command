@@ -59,6 +59,10 @@ DROP_PENALTY = 10_000_000
 # Search budget for the local search phase (seconds)
 SOLVER_TIME_LIMIT_SECONDS = 3
 
+# Diesel burnt per kilometre driven between sites. Job fuelCost covers the work
+# itself (ploughing, harvesting); this is the travel on top of it.
+FUEL_LITRES_PER_KM = float(os.environ.get('FUEL_LITRES_PER_KM', '0.45'))
+
 
 # ==========================================
 # 1. THE SOLVER CLASS (VRP Engine)
@@ -347,10 +351,17 @@ class VRPSolver:
             index = routing.Start(vehicle_id)
             route_jobs = []
 
+            # Accumulate the metres actually driven, including the closing leg
+            # back to the depot, so fuel can be charged against real distance
+            route_metres = 0
+            previous_node = manager.IndexToNode(index)
+
             index = solution.Value(routing.NextVar(index))
 
             while not routing.IsEnd(index):
                 node_index = manager.IndexToNode(index)
+                route_metres += data['distance_matrix'][previous_node][node_index]
+                previous_node = node_index
                 time_var = time_dimension.CumulVar(index)
                 start_minutes = solution.Min(time_var)
 
@@ -377,8 +388,14 @@ class VRPSolver:
 
                 index = solution.Value(routing.NextVar(index))
 
+            # Return leg to the depot
+            route_metres += data['distance_matrix'][previous_node][manager.IndexToNode(index)]
+            route_km = route_metres / 1000
+
             original_tractor = tractors[vehicle_id].copy()
             original_tractor['jobs'] = route_jobs
+            original_tractor['routeDistanceKm'] = round(route_km, 2)
+            original_tractor['travelFuelLitres'] = round(route_km * FUEL_LITRES_PER_KM, 1)
             optimized_tractors.append(original_tractor)
 
         # Identify Unassigned Jobs
@@ -477,11 +494,17 @@ def optimize_fleet(request):
             response_tractors.append(routes_by_id.get(tid, {**tractor, 'jobs': []}))
 
         # STATS
-        total_fuel = 0
+        # Job fuel is the work itself; travel fuel is the driving between sites,
+        # charged against the road distance the solver actually routed.
+        job_fuel = 0
+        travel_fuel = 0
+        total_distance = 0
         scheduled_jobs_count = 0
         for t in response_tractors:
+            travel_fuel += t.get('travelFuelLitres', 0)
+            total_distance += t.get('routeDistanceKm', 0)
             for j in t.get('jobs', []):
-                total_fuel += j.get('fuelCost', 0)
+                job_fuel += j.get('fuelCost', 0)
                 if j.get('status') != 'completed':
                     scheduled_jobs_count += 1
 
@@ -497,7 +520,10 @@ def optimize_fleet(request):
             "grounded": grounded_tractors,
             "unassigned": unassigned_jobs,  # New Field for UI
             "stats": {
-                "totalFuel": int(total_fuel),
+                "totalFuel": int(round(job_fuel + travel_fuel)),
+                "jobFuel": int(round(job_fuel)),
+                "travelFuel": round(travel_fuel, 1),
+                "totalDistanceKm": round(total_distance, 1),
                 "efficiency": efficiency,
                 "conflicts": conflicts,
                 "optimizationMethod": "Google OR-Tools (MIP)",

@@ -99,6 +99,10 @@ interface OptimizationStats {
     totalFuel: number;
     efficiency: number;
     conflicts: number;
+    // Job fuel is the work itself, travel fuel the driving between sites
+    jobFuel?: number;
+    travelFuel?: number;
+    totalDistanceKm?: number;
     distanceSource?: DistanceSource;
 }
 
@@ -856,6 +860,12 @@ const Scheduling = () => {
                                 <span className="text-3xl font-bold text-foreground">{optimizationStats.totalFuel}</span>
                                 <span className="text-sm text-muted-foreground mb-1">Liters</span>
                             </div>
+                            {optimizationStats.travelFuel !== undefined && (
+                                <div className="text-xs text-muted-foreground mt-1">
+                                    {optimizationStats.jobFuel} L field work + {optimizationStats.travelFuel} L driving
+                                    {optimizationStats.totalDistanceKm !== undefined && ` over ${optimizationStats.totalDistanceKm} km`}
+                                </div>
+                            )}
                         </Card>
 
                         <Card className="glass-panel p-6">

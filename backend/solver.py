@@ -36,6 +36,10 @@ DROP_PENALTY = 10_000_000
 # Search budget for the local search phase (seconds)
 SOLVER_TIME_LIMIT_SECONDS = 3
 
+# Diesel burnt per kilometre driven between sites. Job fuelCost covers the work
+# itself (ploughing, harvesting); this is the travel on top of it.
+FUEL_LITRES_PER_KM = float(os.environ.get('FUEL_LITRES_PER_KM', '0.45'))
+
 
 class VRPSolver:
     """Capacitated VRP with time windows over real lat/lng coordinates.
@@ -366,11 +370,18 @@ class VRPSolver:
             index = routing.Start(vehicle_id)
             route_jobs = []
 
+            # Accumulate the metres actually driven, including the closing leg
+            # back to the depot, so fuel can be charged against real distance
+            route_metres = 0
+            previous_node = manager.IndexToNode(index)
+
             # Walk the route, skipping the depot start node
             index = solution.Value(routing.NextVar(index))
 
             while not routing.IsEnd(index):
                 node_index = manager.IndexToNode(index)
+                route_metres += data['distance_matrix'][previous_node][node_index]
+                previous_node = node_index
 
                 if node_index != data['depot']:
                     visited_nodes.add(node_index)
@@ -386,10 +397,16 @@ class VRPSolver:
 
                 index = solution.Value(routing.NextVar(index))
 
+            # Return leg to the depot
+            route_metres += data['distance_matrix'][previous_node][manager.IndexToNode(index)]
+            route_km = route_metres / 1000
+
             tractor = available[vehicle_id]
             routes_by_id[tractor.tractorId] = {
                 **tractor.model_dump(),
                 "jobs": route_jobs,
+                "routeDistanceKm": round(route_km, 2),
+                "travelFuelLitres": round(route_km * FUEL_LITRES_PER_KM, 1),
             }
 
         unassigned = [
