@@ -78,7 +78,11 @@ def optimize_schedule(request: OptimizationRequest):
             "stats": {
                 "totalFuel": int(total_fuel),
                 "efficiency": efficiency,
-                "conflicts": len(unassigned) + len(grounded)
+                "conflicts": len(unassigned) + len(grounded),
+                # Whether the stop ordering came from road distances or the
+                # straight-line fallback - the UI says so rather than implying
+                # road-accurate routing when OSRM was unreachable.
+                "distanceSource": result.get("distanceSource")
             }
         }
     except Exception as e:

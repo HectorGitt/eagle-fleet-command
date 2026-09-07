@@ -1,4 +1,7 @@
+import json
 import math
+import os
+import urllib.request
 from typing import Any, Dict, List, Optional, Tuple
 
 from ortools.constraint_solver import routing_enums_pb2
@@ -7,8 +10,16 @@ from ortools.constraint_solver import pywrapcp
 # Depot: Omatsola Complex, Alausa, Ikeja
 DEPOT_COORDS = (6.615, 3.355)
 
-# Average field-to-field speed for a tractor moving between sites (km/h)
+# Fallback speed used only when OSRM is unavailable and distances come from
+# straight-line haversine maths (km/h)
 AVERAGE_SPEED_KMH = 30
+
+# OSRM road-network routing. Point OSRM_URL at your own instance in production:
+# the public demo server is rate limited and its usage policy excludes it.
+OSRM_BASE = os.environ.get('OSRM_URL', 'https://router.project-osrm.org').rstrip('/')
+OSRM_TIMEOUT_SECONDS = 8
+# The demo server caps /table at 100 coordinates
+OSRM_MAX_LOCATIONS = 100
 
 # Default working day used when a job carries no time window (hours)
 WORKDAY_START = 6
@@ -48,6 +59,84 @@ class VRPSolver:
         c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
         d = R * c
         return d
+
+    # Cache OSRM matrices by coordinate set. Serverless instances are reused,
+    # so this keeps repeat optimizations of the same fleet off the network.
+    _matrix_cache: Dict[str, Tuple[List[List[int]], List[List[int]]]] = {}
+    _MATRIX_CACHE_LIMIT = 32
+
+    def osrm_matrix(self, locations):
+        """Road distances (metres) and durations (minutes) between every pair.
+
+        Returns None when OSRM is unreachable or unusable so the caller can
+        fall back to haversine. Road distances are asymmetric - one-way streets
+        mean A->B and B->A genuinely differ - which straight-line maths cannot
+        express, so this is what makes the stop ordering road-aware.
+        """
+        if not OSRM_BASE or len(locations) < 2 or len(locations) > OSRM_MAX_LOCATIONS:
+            return None
+
+        # OSRM takes lng,lat - the reverse of the (lat, lng) tuples used here
+        coords = ';'.join(f"{lng},{lat}" for lat, lng in locations)
+        cache_key = coords
+        if cache_key in self._matrix_cache:
+            return self._matrix_cache[cache_key]
+
+        url = f"{OSRM_BASE}/table/v1/driving/{coords}?annotations=duration,distance"
+        try:
+            with urllib.request.urlopen(url, timeout=OSRM_TIMEOUT_SECONDS) as response:
+                payload = json.load(response)
+        except Exception as exc:  # network error, timeout, bad JSON
+            print(f"OSRM table unavailable ({exc}) - falling back to haversine")
+            return None
+
+        if payload.get('code') != 'Ok':
+            print(f"OSRM table refused the request ({payload.get('code')}) - falling back to haversine")
+            return None
+
+        distances = payload.get('distances')
+        durations = payload.get('durations')
+        num = len(locations)
+        if not distances or not durations or len(distances) != num or len(durations) != num:
+            print("OSRM table returned an unexpected shape - falling back to haversine")
+            return None
+
+        distance_matrix, duration_matrix = [], []
+        for i in range(num):
+            distance_row, duration_row = [], []
+            for j in range(num):
+                metres = distances[i][j]
+                seconds = durations[i][j]
+                if metres is None or seconds is None:
+                    # An unroutable pair (e.g. an island field). Fill just that
+                    # pair from haversine rather than discarding the whole matrix.
+                    km = self.haversine_distance(locations[i], locations[j])
+                    metres = km * 1000
+                    seconds = km / AVERAGE_SPEED_KMH * 3600
+                distance_row.append(int(round(metres)))
+                duration_row.append(int(math.ceil(seconds / 60)))
+            distance_matrix.append(distance_row)
+            duration_matrix.append(duration_row)
+
+        result = (distance_matrix, duration_matrix)
+        if len(self._matrix_cache) >= self._MATRIX_CACHE_LIMIT:
+            self._matrix_cache.clear()
+        self._matrix_cache[cache_key] = result
+        return result
+
+    def haversine_matrix(self, locations):
+        """Straight-line fallback: distances in metres, durations in minutes."""
+        num = len(locations)
+        distance_matrix, duration_matrix = [], []
+        for i in range(num):
+            distance_row, duration_row = [], []
+            for j in range(num):
+                km = self.haversine_distance(locations[i], locations[j])
+                distance_row.append(int(round(km * 1000)))
+                duration_row.append(int(math.ceil(km / AVERAGE_SPEED_KMH * 60)))
+            distance_matrix.append(distance_row)
+            duration_matrix.append(duration_row)
+        return distance_matrix, duration_matrix
 
     def job_coords(self, job) -> Tuple[float, float]:
         """Coordinates for a job, falling back to the depot when unset."""
@@ -122,18 +211,16 @@ class VRPSolver:
         data['time_windows'] = time_windows
         data['service_times'] = service_times
 
-        # Distance matrix in metres, travel time matrix in whole minutes
-        num_locations = len(locations)
-        distance_matrix = []
-        travel_time_matrix = []
-        for from_node in range(num_locations):
-            distance_row, time_row = [], []
-            for to_node in range(num_locations):
-                km = self.haversine_distance(locations[from_node], locations[to_node])
-                distance_row.append(int(round(km * 1000)))
-                time_row.append(int(math.ceil(km / AVERAGE_SPEED_KMH * 60)))
-            distance_matrix.append(distance_row)
-            travel_time_matrix.append(time_row)
+        # Distance matrix in metres, travel time matrix in whole minutes.
+        # Road distances first so the solver optimizes the order a tractor can
+        # actually drive; haversine only if the routing service is unavailable.
+        road = self.osrm_matrix(locations)
+        if road:
+            distance_matrix, travel_time_matrix = road
+            data['distance_source'] = 'osrm'
+        else:
+            distance_matrix, travel_time_matrix = self.haversine_matrix(locations)
+            data['distance_source'] = 'haversine'
 
         data['distance_matrix'] = distance_matrix
         data['travel_time_matrix'] = travel_time_matrix
@@ -165,6 +252,7 @@ class VRPSolver:
                 ],
                 "unassigned": [self.as_unassigned(j, reason) for j in unassigned_jobs],
                 "grounded": grounded,
+                "distanceSource": None,  # No routing was needed
             }
 
         if not active_jobs:
@@ -176,6 +264,7 @@ class VRPSolver:
                 ],
                 "unassigned": [],
                 "grounded": grounded,
+                "distanceSource": None,  # No routing was needed
             }
 
         if not available:
@@ -317,4 +406,5 @@ class VRPSolver:
             ],
             "unassigned": unassigned,
             "grounded": grounded,
+            "distanceSource": data['distance_source'],
         }
