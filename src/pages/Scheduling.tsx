@@ -62,6 +62,10 @@ const DAY_END = 18;
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
+// Road-network routing. The public demo server is rate limited and explicitly
+// not for production - point VITE_OSRM_URL at your own OSRM instance to ship.
+const OSRM_BASE = (import.meta.env.VITE_OSRM_URL || "https://router.project-osrm.org").replace(/\/+$/, "");
+
 // Types
 interface Job {
     id: string;
@@ -85,6 +89,17 @@ interface TractorSchedule {
     jobs: Job[];
     maxHours: number;
     maintenanceDueIn: number;
+}
+
+// What the solver built its distance matrix from. 'haversine' means OSRM was
+// unreachable and the stop ordering is straight-line, not road-accurate.
+type DistanceSource = 'osrm' | 'haversine' | null;
+
+interface OptimizationStats {
+    totalFuel: number;
+    efficiency: number;
+    conflicts: number;
+    distanceSource?: DistanceSource;
 }
 
 // Machines the solver removed from the pool before routing
@@ -213,6 +228,45 @@ const stopIcon = (color: string, sequence: number) =>
         iconAnchor: [11, 11],
     });
 
+interface RoadRoute {
+    geometry: [number, number][];
+    distanceKm: number;
+    durationMin: number;
+}
+
+/**
+ * Ask OSRM for the driving path through an ordered list of waypoints.
+ *
+ * The solver already decided the visiting order, so this uses /route (which
+ * honours the given order) rather than /trip (which would re-optimise it).
+ * Returns null on any failure so the caller can fall back to straight lines.
+ */
+const fetchRoadRoute = async (
+    waypoints: [number, number][],
+    signal: AbortSignal
+): Promise<RoadRoute | null> => {
+    if (waypoints.length < 2) return null;
+
+    // OSRM takes lng,lat - the reverse of Leaflet's lat,lng
+    const coords = waypoints.map(([lat, lng]) => `${lng},${lat}`).join(';');
+    const url = `${OSRM_BASE}/route/v1/driving/${coords}?overview=full&geometries=geojson`;
+
+    const response = await fetch(url, { signal });
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const route = data?.routes?.[0];
+    if (data?.code !== 'Ok' || !route?.geometry?.coordinates?.length) return null;
+
+    return {
+        geometry: (route.geometry.coordinates as [number, number][]).map(
+            ([lng, lat]) => [lat, lng] as [number, number]
+        ),
+        distanceKm: (route.distance ?? 0) / 1000,
+        durationMin: (route.duration ?? 0) / 60,
+    };
+};
+
 // MapContainer ignores `center` changes after mount, so pan/zoom to the routes
 // ourselves whenever the solver hands back a new set of stops.
 const FitRoutes = ({ points, boundsKey }: { points: [number, number][]; boundsKey: string }) => {
@@ -225,7 +279,10 @@ const FitRoutes = ({ points, boundsKey }: { points: [number, number][]; boundsKe
     return null;
 };
 
-const RouteMap = ({ schedules }: { schedules: TractorSchedule[] }) => {
+const RouteMap = ({ schedules, distanceSource }: {
+    schedules: TractorSchedule[];
+    distanceSource?: DistanceSource;
+}) => {
     // Jobs arrive in the order the solver visits them - that order is the route
     const routes = useMemo(() => schedules
         .map((tractor, idx) => {
@@ -239,25 +296,105 @@ const RouteMap = ({ schedules }: { schedules: TractorSchedule[] }) => {
         })
         .filter(route => route.stops.length > 0), [schedules]);
 
-    const points = useMemo(
-        () => [DEPOT, ...routes.flatMap(route => route.stops.map(j => [j.latitude, j.longitude] as [number, number]))],
+    // The waypoint sequence is what OSRM is keyed on - only refetch when it moves
+    const routesKey = useMemo(
+        () => routes.map(r => `${r.tractorId}:${r.path.map(p => p.join(',')).join(';')}`).join('|'),
         [routes]
     );
+
+    const [roadRoutes, setRoadRoutes] = useState<Record<string, RoadRoute>>({});
+    const [routingStatus, setRoutingStatus] = useState<'idle' | 'loading' | 'partial' | 'failed'>('idle');
+
+    useEffect(() => {
+        if (routes.length === 0) {
+            setRoadRoutes({});
+            setRoutingStatus('idle');
+            return;
+        }
+
+        const controller = new AbortController();
+        let cancelled = false;
+        setRoutingStatus('loading');
+
+        Promise.all(
+            routes.map(async route => {
+                try {
+                    return [route.tractorId, await fetchRoadRoute(route.path, controller.signal)] as const;
+                } catch {
+                    return [route.tractorId, null] as const; // Aborted or network error
+                }
+            })
+        ).then(entries => {
+            if (cancelled) return;
+
+            const resolved: Record<string, RoadRoute> = {};
+            for (const [tractorId, road] of entries) {
+                if (road) resolved[tractorId] = road;
+            }
+
+            setRoadRoutes(resolved);
+            const found = Object.keys(resolved).length;
+            setRoutingStatus(found === entries.length ? 'idle' : found === 0 ? 'failed' : 'partial');
+        });
+
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
+    }, [routesKey, routes]);
+
+    // Fit to the drawn road geometry when we have it - a road can swing well
+    // outside the bounding box of its stops
+    const points = useMemo(() => {
+        const stopPoints = routes.flatMap(route =>
+            roadRoutes[route.tractorId]?.geometry ?? route.path
+        );
+        return [DEPOT, ...stopPoints];
+    }, [routes, roadRoutes]);
     const boundsKey = useMemo(() => points.map(p => p.join(',')).join('|'), [points]);
 
     return (
         <Card className="glass-panel p-6 overflow-hidden mt-6 h-[460px] flex flex-col">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <h2 className="text-xl font-bold text-foreground">Optimized Route Visualization</h2>
-                <div className="flex gap-4 flex-wrap">
-                    {routes.map((route) => (
-                        <div key={route.tractorId} className="flex items-center gap-2 text-xs">
-                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: route.color }}></div>
-                            <span>{route.tractorId} ({route.stops.length} {route.stops.length === 1 ? 'stop' : 'stops'})</span>
-                        </div>
-                    ))}
+                <div className="flex gap-4 flex-wrap items-center">
+                    {routes.map((route) => {
+                        const road = roadRoutes[route.tractorId];
+                        return (
+                            <div key={route.tractorId} className="flex items-center gap-2 text-xs">
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: route.color }}></div>
+                                <span>
+                                    {route.tractorId} ({route.stops.length} {route.stops.length === 1 ? 'stop' : 'stops'}
+                                    {road && ` · ${road.distanceKm.toFixed(1)} km · ${Math.round(road.durationMin)} min`})
+                                </span>
+                            </div>
+                        );
+                    })}
                     {routes.length === 0 && (
                         <span className="text-xs text-muted-foreground">No routed jobs yet</span>
+                    )}
+                    {routingStatus === 'loading' && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-1">
+                            <Clock className="w-3 h-3 animate-spin" /> Fetching road paths...
+                        </span>
+                    )}
+                    {(routingStatus === 'failed' || routingStatus === 'partial') && (
+                        <span className="text-xs text-status-warning flex items-center gap-1" title={`OSRM (${OSRM_BASE}) did not return a road path`}>
+                            <AlertTriangle className="w-3 h-3" />
+                            {routingStatus === 'failed' ? 'Straight-line fallback' : 'Some routes straight-line'}
+                        </span>
+                    )}
+                    {/* The drawn path and the ordering come from separate calls -
+                        the solver's /table matrix can fall back independently */}
+                    {distanceSource === 'osrm' && (
+                        <span className="text-xs text-muted-foreground">Ordered by road distance</span>
+                    )}
+                    {distanceSource === 'haversine' && (
+                        <span className="text-xs text-status-warning flex items-center gap-1"
+                              title="The solver could not reach OSRM, so stop ordering used straight-line distance">
+                            <AlertTriangle className="w-3 h-3" />
+                            Ordered by straight-line distance
+                        </span>
                     )}
                 </div>
             </div>
@@ -274,9 +411,23 @@ const RouteMap = ({ schedules }: { schedules: TractorSchedule[] }) => {
                         <Popup>Depot (Omatsola Complex)</Popup>
                     </Marker>
 
-                    {routes.map((route) => (
+                    {routes.map((route) => {
+                        const road = roadRoutes[route.tractorId];
+                        return (
                         <Fragment key={route.tractorId}>
-                            <Polyline positions={route.path} color={route.color} weight={3} opacity={0.75} />
+                            {/* Road geometry from OSRM; dashed straight lines while it
+                                is loading or if the routing service is unreachable */}
+                            <Polyline
+                                positions={road?.geometry ?? route.path}
+                                // react-leaflet only re-applies styling through
+                                // pathOptions - shorthand props are read once at mount
+                                pathOptions={{
+                                    color: route.color,
+                                    weight: road ? 4 : 3,
+                                    opacity: road ? 0.85 : 0.5,
+                                    dashArray: road ? undefined : '6 8',
+                                }}
+                            />
                             {route.stops.map((job, stopIdx) => (
                                 <Marker
                                     key={job.id}
@@ -292,7 +443,8 @@ const RouteMap = ({ schedules }: { schedules: TractorSchedule[] }) => {
                                 </Marker>
                             ))}
                         </Fragment>
-                    ))}
+                        );
+                    })}
                 </MapContainer>
             </div>
         </Card>
@@ -301,7 +453,7 @@ const RouteMap = ({ schedules }: { schedules: TractorSchedule[] }) => {
 
 const Scheduling = () => {
     const [isOptimizing, setIsOptimizing] = useState(false);
-    const [optimizationStats, setOptimizationStats] = useState({
+    const [optimizationStats, setOptimizationStats] = useState<OptimizationStats>({
         totalFuel: 590,
         efficiency: 45,
         conflicts: 2
@@ -907,7 +1059,7 @@ const Scheduling = () => {
                     </Card>
 
                     {/* Route Visualization Map */}
-                    <RouteMap schedules={schedules} />
+                    <RouteMap schedules={schedules} distanceSource={optimizationStats.distanceSource} />
                 </main>
             </div>
         </div>
