@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from solver import VRPSolver
+from solver import VRPSolver, DEPOT_COORDS, WORKDAY_START, WORKDAY_END
 
 app = FastAPI(title="EagleSight VRP Engine")
 
@@ -10,7 +10,7 @@ app = FastAPI(title="EagleSight VRP Engine")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], # Allow all origins for dev
-    allow_credentials=True,
+    allow_credentials=False, # "*" origins and credentials cannot be combined
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -29,10 +29,10 @@ class Job(BaseModel):
     profit: float
     status: str
     constraintWarning: Optional[str] = None
-    latitude: Optional[float] = 7.15
-    longitude: Optional[float] = 3.35
-    timeWindowStart: Optional[int] = 0
-    timeWindowEnd: Optional[int] = 24
+    latitude: Optional[float] = DEPOT_COORDS[0]
+    longitude: Optional[float] = DEPOT_COORDS[1]
+    timeWindowStart: Optional[float] = WORKDAY_START
+    timeWindowEnd: Optional[float] = WORKDAY_END
 
 class TractorSchedule(BaseModel):
     tractorId: str
@@ -53,23 +53,32 @@ def read_root():
 @app.post("/optimize")
 def optimize_schedule(request: OptimizationRequest):
     try:
-        # Extract all jobs from all tractors
+        # Pool every job in the fleet so the solver can move work between tractors
         all_jobs = []
         for tractor in request.tractors:
             all_jobs.extend(tractor.jobs)
-            
-        # Run Solver
-        optimized_tractors = solver.solve(request.tractors, all_jobs)
-        
-        # Calculate stats
-        total_fuel = sum(j['fuelCost'] for t in optimized_tractors for j in t['jobs'])
-        
+
+        result = solver.solve(request.tractors, all_jobs)
+
+        optimized_tractors = result["tractors"]
+        unassigned = result["unassigned"]
+        grounded = result["grounded"]
+
+        assigned_jobs = [j for t in optimized_tractors for j in t['jobs']]
+        total_fuel = sum(j['fuelCost'] for j in assigned_jobs)
+
+        routable = len([j for j in all_jobs if j.status != 'completed'])
+        scheduled = len([j for j in assigned_jobs if j['status'] != 'completed'])
+        efficiency = int(round(scheduled / routable * 100)) if routable else 100
+
         return {
             "tractors": optimized_tractors,
+            "unassigned": unassigned,
+            "grounded": grounded,
             "stats": {
-                "totalFuel": int(total_fuel * 0.85), # Simulated improvement
-                "efficiency": 98,
-                "conflicts": 0
+                "totalFuel": int(total_fuel),
+                "efficiency": efficiency,
+                "conflicts": len(unassigned) + len(grounded)
             }
         }
     except Exception as e:

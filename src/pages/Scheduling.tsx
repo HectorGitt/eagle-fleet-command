@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 import { TopBar } from "@/components/TopBar";
 import { Card } from "@/components/ui/card";
@@ -53,6 +53,15 @@ const DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
+// Depot: Omatsola Complex, Alausa, Ikeja. Must match DEPOT_COORDS in backend/solver.py
+const DEPOT: [number, number] = [6.615, 3.355];
+
+// Working day rendered by the Gantt chart, and the default window for new jobs
+const DAY_START = 6;
+const DAY_END = 18;
+
+const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
+
 // Types
 interface Job {
     id: string;
@@ -62,7 +71,7 @@ interface Job {
     startTime: number;
     fuelCost: number;
     profit: number;
-    status: "scheduled" | "completed" | "delayed";
+    status: "scheduled" | "completed" | "delayed" | "unassigned";
     constraintWarning?: string;
     latitude?: number;
     longitude?: number;
@@ -76,6 +85,16 @@ interface TractorSchedule {
     jobs: Job[];
     maxHours: number;
     maintenanceDueIn: number;
+}
+
+// Machines the solver removed from the pool before routing
+interface GroundedTractor {
+    tractorId: string;
+    reason: string;
+    telemetry?: {
+        engineTemp: number;
+        hydraulicPressure: number;
+    };
 }
 
 // Location Picker Component
@@ -154,7 +173,10 @@ const LocationPicker = ({ onLocationSelect }: { onLocationSelect: (lat: number, 
             </div>
             <div className="h-[200px] w-full rounded-md overflow-hidden border border-input relative">
                 <MapContainer center={[6.615, 3.355]} zoom={13} style={{ height: '100%', width: '100%' }}>
-                    <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+                    <TileLayer
+                        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                    />
                     <MapEvents />
                     <MapController coords={position} />
                     {position && <Marker position={position} />}
@@ -165,64 +187,112 @@ const LocationPicker = ({ onLocationSelect }: { onLocationSelect: (lat: number, 
 };
 
 // Route Visualization Component
+const ROUTE_COLORS = ['#3b82f6', '#ef4444', '#22c55e', '#a855f7', '#f97316'];
+
+const hasCoords = (job: Job): job is Job & { latitude: number; longitude: number } =>
+    typeof job.latitude === 'number' && typeof job.longitude === 'number';
+
+// Jobs the Gantt track cannot draw because they fall outside 06:00-18:00
+const jobsOutsideWorkingDay = (jobs: Job[]) =>
+    jobs.filter(job => Math.min(job.startTime + job.durationHours, DAY_END) <= Math.max(job.startTime, DAY_START));
+
+const formatHour = (hours: number) => {
+    const h = Math.floor(hours);
+    const m = Math.round((hours - h) * 60);
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+};
+
+// Numbered pin so the visiting order of a route is readable on the map
+const stopIcon = (color: string, sequence: number) =>
+    L.divIcon({
+        className: '',
+        html: `<div style="background:${color};color:#fff;width:22px;height:22px;border-radius:50%;
+               display:flex;align-items:center;justify-content:center;font:700 11px/1 system-ui;
+               border:2px solid rgba(255,255,255,0.85);box-shadow:0 1px 4px rgba(0,0,0,0.5)">${sequence}</div>`,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+    });
+
+// MapContainer ignores `center` changes after mount, so pan/zoom to the routes
+// ourselves whenever the solver hands back a new set of stops.
+const FitRoutes = ({ points, boundsKey }: { points: [number, number][]; boundsKey: string }) => {
+    const map = useMap();
+    useEffect(() => {
+        if (points.length < 2) return; // Only the depot - leave the default view alone
+        map.fitBounds(L.latLngBounds(points), { padding: [40, 40], maxZoom: 15 });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [boundsKey, map]);
+    return null;
+};
+
 const RouteMap = ({ schedules }: { schedules: TractorSchedule[] }) => {
-    const colors = ['blue', 'red', 'green', 'purple', 'orange'];
+    // Jobs arrive in the order the solver visits them - that order is the route
+    const routes = useMemo(() => schedules
+        .map((tractor, idx) => {
+            const stops = tractor.jobs.filter(hasCoords);
+            return {
+                tractorId: tractor.tractorId,
+                color: ROUTE_COLORS[idx % ROUTE_COLORS.length],
+                stops,
+                path: [DEPOT, ...stops.map(j => [j.latitude, j.longitude] as [number, number]), DEPOT],
+            };
+        })
+        .filter(route => route.stops.length > 0), [schedules]);
+
+    const points = useMemo(
+        () => [DEPOT, ...routes.flatMap(route => route.stops.map(j => [j.latitude, j.longitude] as [number, number]))],
+        [routes]
+    );
+    const boundsKey = useMemo(() => points.map(p => p.join(',')).join('|'), [points]);
 
     return (
-        <Card className="glass-panel p-6 overflow-hidden mt-6 h-[400px]">
-            <div className="flex items-center justify-between mb-4">
+        <Card className="glass-panel p-6 overflow-hidden mt-6 h-[460px] flex flex-col">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                 <h2 className="text-xl font-bold text-foreground">Optimized Route Visualization</h2>
-                <div className="flex gap-4">
-                    {schedules.map((t, i) => (
-                        <div key={t.tractorId} className="flex items-center gap-2 text-xs">
-                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: colors[i % colors.length] }}></div>
-                            <span>{t.tractorId}</span>
+                <div className="flex gap-4 flex-wrap">
+                    {routes.map((route) => (
+                        <div key={route.tractorId} className="flex items-center gap-2 text-xs">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: route.color }}></div>
+                            <span>{route.tractorId} ({route.stops.length} {route.stops.length === 1 ? 'stop' : 'stops'})</span>
                         </div>
                     ))}
+                    {routes.length === 0 && (
+                        <span className="text-xs text-muted-foreground">No routed jobs yet</span>
+                    )}
                 </div>
             </div>
-            <div className="h-full w-full rounded-lg overflow-hidden border border-border/30">
-                <MapContainer center={[6.615, 3.355]} zoom={13} style={{ height: '100%', width: '100%' }}>
-                    <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+            <div className="flex-1 min-h-0 w-full rounded-lg overflow-hidden border border-border/30">
+                <MapContainer center={DEPOT} zoom={13} style={{ height: '100%', width: '100%' }}>
+                    <TileLayer
+                        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+                    />
+                    <FitRoutes points={points} boundsKey={boundsKey} />
 
                     {/* Depot */}
-                    <Marker position={[6.615, 3.355]}>
+                    <Marker position={DEPOT}>
                         <Popup>Depot (Omatsola Complex)</Popup>
                     </Marker>
 
-                    {schedules.map((tractor, idx) => {
-                        const color = colors[idx % colors.length];
-                        const positions: [number, number][] = [[6.615, 3.355]]; // Start at Depot
-
-                        // Sort jobs by start time to draw correct path
-                        const sortedJobs = [...tractor.jobs].sort((a, b) => a.startTime - b.startTime);
-
-                        sortedJobs.forEach(job => {
-                            if (job.latitude && job.longitude) {
-                                positions.push([job.latitude, job.longitude]);
-                            }
-                        });
-
-                        // Return to Depot (optional, but good for VRP visualization)
-                        // positions.push([6.615, 3.355]);
-
-                        return (
-                            <div key={tractor.tractorId}>
-                                <Polyline positions={positions} color={color} weight={3} opacity={0.7} />
-                                {sortedJobs.map(job => (
-                                    job.latitude && job.longitude && (
-                                        <Marker key={job.id} position={[job.latitude, job.longitude]}>
-                                            <Popup>
-                                                <strong>{job.fieldId}</strong><br />
-                                                {job.type}<br />
-                                                Start: {job.startTime.toFixed(2)}h
-                                            </Popup>
-                                        </Marker>
-                                    )
-                                ))}
-                            </div>
-                        );
-                    })}
+                    {routes.map((route) => (
+                        <Fragment key={route.tractorId}>
+                            <Polyline positions={route.path} color={route.color} weight={3} opacity={0.75} />
+                            {route.stops.map((job, stopIdx) => (
+                                <Marker
+                                    key={job.id}
+                                    position={[job.latitude, job.longitude]}
+                                    icon={stopIcon(route.color, stopIdx + 1)}
+                                >
+                                    <Popup>
+                                        <strong>{job.fieldId}</strong><br />
+                                        {route.tractorId} &middot; stop {stopIdx + 1} of {route.stops.length}<br />
+                                        {job.type}<br />
+                                        {formatHour(job.startTime)} &ndash; {formatHour(job.startTime + job.durationHours)}
+                                    </Popup>
+                                </Marker>
+                            ))}
+                        </Fragment>
+                    ))}
                 </MapContainer>
             </div>
         </Card>
@@ -237,7 +307,7 @@ const Scheduling = () => {
         conflicts: 2
     });
     const [unassignedJobs, setUnassignedJobs] = useState<Job[]>([]);
-    const [groundedTractors, setGroundedTractors] = useState<any[]>([]);
+    const [groundedTractors, setGroundedTractors] = useState<GroundedTractor[]>([]);
 
     // Initial Data with Real Locations (Ikeja/Alausa Industrial Zone)
     const [schedules, setSchedules] = useState<TractorSchedule[]>([
@@ -257,7 +327,9 @@ const Scheduling = () => {
                     profit: 500,
                     status: "scheduled",
                     latitude: 6.620,
-                    longitude: 3.360
+                    longitude: 3.360,
+                    timeWindowStart: DAY_START,
+                    timeWindowEnd: 12
                 },
                 {
                     id: "J2",
@@ -270,7 +342,9 @@ const Scheduling = () => {
                     status: "scheduled",
                     constraintWarning: "High Fuel Usage",
                     latitude: 6.610,
-                    longitude: 3.350
+                    longitude: 3.350,
+                    timeWindowStart: DAY_START,
+                    timeWindowEnd: DAY_END
                 }
             ]
         },
@@ -291,7 +365,9 @@ const Scheduling = () => {
                     status: "scheduled",
                     constraintWarning: "Maintenance Risk",
                     latitude: 6.605,
-                    longitude: 3.365
+                    longitude: 3.365,
+                    timeWindowStart: DAY_START,
+                    timeWindowEnd: DAY_END
                 }
             ]
         },
@@ -311,7 +387,9 @@ const Scheduling = () => {
                     profit: 1200,
                     status: "scheduled",
                     latitude: 6.625,
-                    longitude: 3.345
+                    longitude: 3.345,
+                    timeWindowStart: DAY_START,
+                    timeWindowEnd: DAY_END
                 },
                 {
                     id: "J5",
@@ -323,7 +401,9 @@ const Scheduling = () => {
                     profit: 200,
                     status: "scheduled",
                     latitude: 6.620,
-                    longitude: 3.360
+                    longitude: 3.360,
+                    timeWindowStart: 10,
+                    timeWindowEnd: DAY_END
                 }
             ]
         }
@@ -331,16 +411,17 @@ const Scheduling = () => {
 
     // New Job Form State
     const [isAddJobOpen, setIsAddJobOpen] = useState(false);
-    const [newJob, setNewJob] = useState({
+    const emptyJobForm = {
         tractorId: "T-800",
         fieldId: "",
         type: "Ploughing",
         durationHours: 2,
-        latitude: 6.615,
-        longitude: 3.355,
-        timeWindowStart: 6,
-        timeWindowEnd: 18
-    });
+        latitude: DEPOT[0],
+        longitude: DEPOT[1],
+        timeWindowStart: DAY_START,
+        timeWindowEnd: DAY_END
+    };
+    const [newJob, setNewJob] = useState(emptyJobForm);
 
     const handleAddJob = () => {
         if (!newJob.fieldId) {
@@ -348,10 +429,21 @@ const Scheduling = () => {
             return;
         }
 
+        // The solver silently drops jobs it cannot fit, so reject bad input here
+        if (!(Number(newJob.durationHours) > 0)) {
+            toast.error("Duration must be greater than zero");
+            return;
+        }
+
+        if (Number(newJob.timeWindowEnd) < Number(newJob.timeWindowStart)) {
+            toast.error("Latest start must be at or after the earliest start");
+            return;
+        }
+
         const job: Job = {
             id: `J${Date.now()}`,
             fieldId: newJob.fieldId,
-            type: newJob.type as any,
+            type: newJob.type as Job["type"],
             durationHours: Number(newJob.durationHours),
             startTime: Number(newJob.timeWindowStart), // Initial guess
             fuelCost: 50,
@@ -374,6 +466,7 @@ const Scheduling = () => {
         }));
 
         setIsAddJobOpen(false);
+        setNewJob({ ...emptyJobForm, tractorId: newJob.tractorId }); // Don't carry the last pin into the next job
         toast.success("Job Added", {
             description: `${job.type} at ${job.fieldId} (${job.latitude.toFixed(3)}, ${job.longitude.toFixed(3)})`
         });
@@ -385,24 +478,31 @@ const Scheduling = () => {
         try {
             const payload = { tractors: schedules };
 
-            const response = await fetch(`${import.meta.env.VITE_API_URL}/optimize`, {
+            const response = await fetch(`${API_BASE}/optimize`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
             });
 
-            if (!response.ok) throw new Error('Backend optimization failed');
+            if (!response.ok) {
+                const detail = await response.text().catch(() => '');
+                throw new Error(`Solver returned ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`);
+            }
 
             const data = await response.json();
+
+            if (!Array.isArray(data.tractors)) {
+                throw new Error('Solver response did not contain any routes');
+            }
 
             setSchedules(data.tractors);
             setUnassignedJobs(data.unassigned || []);
             setGroundedTractors(data.grounded || []);
-            setOptimizationStats(data.stats);
+            setOptimizationStats(prev => data.stats ?? prev);
 
             if ((data.unassigned && data.unassigned.length > 0) || (data.grounded && data.grounded.length > 0)) {
                 toast.warning(`Optimization Complete: Issues Detected`, {
-                    description: `${data.unassigned?.length || 0} unassigned jobs, ${data.grounded?.length || 0} grounded tractors.`,
+                    description: `${data.unassigned?.length || 0} unassigned job(s), ${data.grounded?.length || 0} grounded tractor(s).`,
                     icon: <AlertTriangle className="w-5 h-5 text-orange-500" />
                 });
             } else {
@@ -411,6 +511,15 @@ const Scheduling = () => {
                     icon: <Zap className="w-5 h-5 text-yellow-500" />
                 });
             }
+        } catch (error) {
+            // Without this the schedule silently keeps the pre-optimization routes
+            console.error('VRP optimization failed', error);
+            toast.error("Optimization Failed", {
+                description: error instanceof Error
+                    ? `${error.message}. Is the VRP engine running on ${API_BASE}?`
+                    : `Could not reach the VRP engine on ${API_BASE}.`,
+                icon: <AlertTriangle className="w-5 h-5 text-red-500" />
+            });
         } finally {
             setIsOptimizing(false);
         }
@@ -739,6 +848,16 @@ const Scheduling = () => {
                                                     <span>Maint. Due in {tractor.maintenanceDueIn}h</span>
                                                 </div>
                                             )}
+
+                                            {/* Work scheduled outside the drawn window is still reported */}
+                                            {jobsOutsideWorkingDay(tractor.jobs).length > 0 && (
+                                                <div className="flex items-center gap-1 text-xs text-muted-foreground bg-accent/10 px-2 py-0.5 rounded">
+                                                    <Clock className="w-3 h-3" />
+                                                    <span>
+                                                        {jobsOutsideWorkingDay(tractor.jobs).length} job(s) outside 06:00-18:00
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Timeline Track */}
@@ -752,14 +871,15 @@ const Scheduling = () => {
 
                                             {/* Jobs */}
                                             {tractor.jobs.map((job) => {
-                                                // Calculate position and width based on 06:00 start (index 0) to 18:00 (index 12)
-                                                // Total 12 hours displayed
-                                                const startOffset = job.startTime - 6;
-                                                const width = job.durationHours;
+                                                // Clamp to the 06:00-18:00 track so a job scheduled
+                                                // outside the working day cannot render off-chart
+                                                const visibleStart = Math.max(job.startTime, DAY_START);
+                                                const visibleEnd = Math.min(job.startTime + job.durationHours, DAY_END);
+                                                if (visibleEnd <= visibleStart) return null;
 
-                                                // Convert to percentage
-                                                const leftPercent = (startOffset / 12) * 100;
-                                                const widthPercent = (width / 12) * 100;
+                                                const span = DAY_END - DAY_START;
+                                                const leftPercent = ((visibleStart - DAY_START) / span) * 100;
+                                                const widthPercent = ((visibleEnd - visibleStart) / span) * 100;
 
                                                 return (
                                                     <div
