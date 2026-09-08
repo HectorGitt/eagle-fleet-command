@@ -55,6 +55,7 @@ export default {
         card: {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
+          elevated: "hsl(var(--card-elevated))",
         },
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
@@ -70,7 +71,30 @@ export default {
           operational: "hsl(var(--status-operational))",
           maintenance: "hsl(var(--status-maintenance))",
           idle: "hsl(var(--status-idle))",
+          // `status-warning` was used in 18 places but never defined here, so
+          // every one of those rendered colourless. Kept alongside `idle`.
+          warning: "hsl(var(--status-warning))",
+          info: "hsl(var(--status-info))",
+          "operational-bg": "hsl(var(--status-operational-bg))",
+          "warning-bg": "hsl(var(--status-warning-bg))",
+          "maintenance-bg": "hsl(var(--status-maintenance-bg))",
+          "info-bg": "hsl(var(--status-info-bg))",
         },
+        // Categorical labels for job types and route identity - no green, so a
+        // category can never be misread as a health signal.
+        cat: {
+          1: "hsl(var(--cat-1))",
+          2: "hsl(var(--cat-2))",
+          3: "hsl(var(--cat-3))",
+          4: "hsl(var(--cat-4))",
+          5: "hsl(var(--cat-5))",
+        },
+        "border-strong": "hsl(var(--border-strong))",
+      },
+      boxShadow: {
+        sm: "var(--shadow-sm)",
+        md: "var(--shadow-md)",
+        lg: "var(--shadow-lg)",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -78,6 +102,10 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       keyframes: {
+        "fade-in": {
+          from: { opacity: "0", transform: "translateY(4px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
         "accordion-down": {
           from: {
             height: "0",
@@ -96,6 +124,7 @@ export default {
         },
       },
       animation: {
+        "fade-in": "fade-in 0.2s ease-out",
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
       },
