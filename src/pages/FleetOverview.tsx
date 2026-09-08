@@ -1,15 +1,27 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFleet } from "@/context/FleetContext";
-import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { TopBar } from "@/components/TopBar";
+import { AppShell, PageHeader, Section } from "@/components/AppShell";
+import { StatCard } from "@/components/StatCard";
+import { StatusBadge, StatusDot, type StatusTone } from "@/components/StatusBadge";
 import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
-import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, Tractor, Leaf, Activity, MapPin, Thermometer, Droplet, Gauge } from "lucide-react";
+import { TrendingUp, AlertTriangle, CheckCircle, Tractor, Leaf, Activity, MapPin, Thermometer, Droplet, Gauge } from "lucide-react";
 import { toast } from "sonner";
 import { type TractorTelemetry } from "@/lib/telemetry";
+
+/** Activity to status meaning. One mapping, used by the dot, badge and sheet. */
+const activityTone = (activity: string): StatusTone => {
+  switch (activity) {
+    case "Maintenance": return "critical";
+    case "Idle": return "warning";
+    case "Ploughing":
+    case "Harrowing":
+    case "Transport": return "operational";
+    default: return "neutral";
+  }
+};
 
 const FleetOverview = () => {
   const { tractors } = useFleet();
@@ -17,37 +29,15 @@ const FleetOverview = () => {
   const [selectedTractor, setSelectedTractor] = useState<TractorTelemetry | null>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
 
-  // Calculate KPIs dynamically
   const totalUnits = tractors.length;
   const activeUnits = tractors.filter(t => t.activity !== 'Idle' && t.activity !== 'Maintenance').length;
   const inMaintenance = tractors.filter(t => t.activity === 'Maintenance').length;
-  const utilizationRate = Math.round((activeUnits / totalUnits) * 100);
+  // Guard the first render, before the telemetry context has populated
+  const utilizationRate = totalUnits > 0 ? Math.round((activeUnits / totalUnits) * 100) : 0;
 
   const totalWorkDone = tractors.reduce((acc, t) => acc + t.workDone, 0);
   const totalFuelConsumed = tractors.reduce((acc, t) => acc + t.fuelConsumed, 0);
   const avgEfficiency = totalFuelConsumed > 0 ? (totalWorkDone / totalFuelConsumed).toFixed(2) : "0.00";
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "Ploughing":
-      case "Harrowing":
-      case "Transport": return "bg-status-operational";
-      case "Maintenance": return "bg-status-maintenance";
-      case "Idle": return "bg-status-warning";
-      default: return "bg-muted";
-    }
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "Ploughing":
-      case "Harrowing":
-      case "Transport": return <Badge className="bg-status-operational/20 text-status-operational border-status-operational">{status}</Badge>;
-      case "Maintenance": return <Badge className="bg-status-maintenance/20 text-status-maintenance border-status-maintenance">Maintenance</Badge>;
-      case "Idle": return <Badge className="bg-status-warning/20 text-status-warning border-status-warning">Idle</Badge>;
-      default: return <Badge variant="outline">Unknown</Badge>;
-    }
-  };
 
   const handleViewDetails = (tractor: TractorTelemetry) => {
     setSelectedTractor(tractor);
@@ -55,265 +45,247 @@ const FleetOverview = () => {
   };
 
   const handleMaintenance = (id: string) => {
-    toast.info(`Redirecting to maintenance for Tractor ${id}...`);
+    toast.info(`Opening maintenance for ${id}`);
     navigate(`/maintenance?tractorId=${id}`);
   };
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
-      <DashboardSidebar />
+    <AppShell>
+      <PageHeader
+        title="Fleet Overview"
+        description="Real-time operational intelligence and fleet status"
+        icon={<Tractor />}
+      />
 
-      <div className="flex-1 flex flex-col ml-64">
-        <TopBar />
+      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Fleet Utilization"
+          value={`${utilizationRate}%`}
+          icon={<CheckCircle />}
+          tone="operational"
+          detail={
+            <span className="flex items-center gap-1">
+              <TrendingUp className="h-3 w-3" />
+              {activeUnits} of {totalUnits || "—"} units working
+            </span>
+          }
+        />
+        <StatCard
+          label="Total Work Done"
+          value={totalWorkDone.toFixed(1)}
+          unit="ha"
+          icon={<Tractor />}
+          detail={`Across ${totalUnits || "—"} units`}
+        />
+        <StatCard
+          label="Avg Efficiency"
+          value={avgEfficiency}
+          unit="ha/L"
+          icon={<Leaf />}
+          detail="Work per litre burnt"
+        />
+        <StatCard
+          label="In Maintenance"
+          value={inMaintenance}
+          icon={<AlertTriangle />}
+          tone={inMaintenance > 0 ? "critical" : "neutral"}
+          detail={inMaintenance > 0 ? "Units out of service" : "Whole fleet available"}
+        />
+      </div>
 
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold text-foreground mb-2">Fleet Overview</h1>
-            <p className="text-muted-foreground">Real-time operational intelligence and fleet status</p>
-          </div>
+      <Section title="Live Fleet Status" description="Updates every 3 seconds">
+        <div className="-mx-5 overflow-x-auto px-5">
+          <table className="data-table min-w-[900px]">
+            <thead>
+              <tr>
+                <th>Tractor</th>
+                <th>Activity</th>
+                <th>Location (GPS)</th>
+                <th>Engine Load</th>
+                <th>Fuel</th>
+                <th>Work Done</th>
+                <th className="text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tractors.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                    Waiting for telemetry…
+                  </td>
+                </tr>
+              )}
+              {tractors.map((tractor) => {
+                const tone = activityTone(tractor.activity);
+                const overheating = tractor.engineTemp > 105;
+                const lowFuel = tractor.fuelLevel < 20;
 
-          {/* KPI Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Fleet Utilization</span>
-                <CheckCircle className="w-5 h-5 text-primary" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">{utilizationRate}%</div>
-              <div className="flex items-center mt-2 text-xs text-status-operational">
-                <TrendingUp className="w-3 h-3 mr-1" />
-                <span>{activeUnits} active units</span>
-              </div>
-            </Card>
-
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Total Work Done</span>
-                <Tractor className="w-5 h-5 text-status-operational" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">{totalWorkDone.toFixed(1)} ha</div>
-              <div className="flex items-center mt-2 text-xs text-muted-foreground">
-                <span>Across {totalUnits} units</span>
-              </div>
-            </Card>
-
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Avg Efficiency</span>
-                <Leaf className="w-5 h-5 text-status-warning" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">{avgEfficiency} ha/L</div>
-              <div className="flex items-center mt-2 text-xs text-status-operational">
-                <TrendingUp className="w-3 h-3 mr-1" />
-                <span>Optimized</span>
-              </div>
-            </Card>
-
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Maintenance</span>
-                <AlertTriangle className="w-5 h-5 text-status-maintenance" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">{inMaintenance}</div>
-              <div className="flex items-center mt-2 text-xs text-muted-foreground">
-                <span>Units in service</span>
-              </div>
-            </Card>
-          </div>
-
-          {/* Fleet Status Table */}
-          <Card className="glass-panel p-6">
-            <h2 className="text-xl font-bold text-foreground mb-4">Live Fleet Status</h2>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border/50">
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Tractor ID</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Activity</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Location (GPS)</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Engine Load</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Fuel Level</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Work Done</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tractors.map((tractor) => (
-                    <tr key={tractor.tractorId} className="border-b border-border/30 hover:bg-accent/5 transition-colors">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
-                          <div className={`w-2 h-2 rounded-full ${getStatusColor(tractor.activity)} status-pulse`} />
-                          <span className="font-mono font-semibold text-foreground">{tractor.tractorId}</span>
+                return (
+                  <tr key={tractor.tractorId}>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <StatusDot tone={tone} pulse={tone === "operational"} />
+                        <div className="min-w-0">
+                          <div className="ident text-foreground">{tractor.tractorId}</div>
+                          <div className="text-[11px] text-muted-foreground">{tractor.enginePower} HP</div>
                         </div>
-                        <div className="text-xs text-muted-foreground ml-4">{tractor.enginePower} HP</div>
-                      </td>
-                      <td className="py-4 px-4">{getStatusBadge(tractor.activity)}</td>
-                      <td className="py-4 px-4 text-muted-foreground font-mono text-xs">
-                        <div className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {tractor.gpsCoordinates.lat.toFixed(4)}, {tractor.gpsCoordinates.lng.toFixed(4)}
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2">
-                          <Activity className="w-4 h-4 text-muted-foreground" />
-                          <span className={tractor.engineTemp > 105 ? "text-status-maintenance font-semibold" : "text-foreground"}>
-                            {tractor.hydraulicLoad.toFixed(0)}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className={tractor.fuelLevel < 20 ? "text-status-warning font-semibold" : "text-foreground"}>
-                          {tractor.fuelLevel.toFixed(0)}%
+                      </div>
+                    </td>
+                    <td>
+                      <StatusBadge tone={tone}>{tractor.activity}</StatusBadge>
+                    </td>
+                    <td>
+                      <span className="flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        {tractor.gpsCoordinates.lat.toFixed(4)}, {tractor.gpsCoordinates.lng.toFixed(4)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="flex items-center gap-2">
+                        <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+                        <span className={overheating ? "font-semibold text-status-maintenance" : "text-foreground"}>
+                          {tractor.hydraulicLoad.toFixed(0)}%
                         </span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className="text-foreground font-medium">{tractor.workDone.toFixed(1)} / {tractor.farmSize} ha</span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <div className="flex gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 text-xs"
-                            onClick={() => handleViewDetails(tractor)}
-                          >
-                            Details
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 text-xs text-status-maintenance hover:text-status-maintenance hover:bg-status-maintenance/10"
-                            onClick={() => handleMaintenance(tractor.tractorId)}
-                          >
-                            Service
-                          </Button>
+                      </span>
+                    </td>
+                    <td>
+                      <span className={lowFuel ? "font-semibold text-status-warning" : "text-foreground"}>
+                        {tractor.fuelLevel.toFixed(0)}%
+                      </span>
+                    </td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                          <div
+                            className="h-full rounded-full bg-primary"
+                            style={{ width: `${Math.min(100, (tractor.workDone / tractor.farmSize) * 100)}%` }}
+                          />
                         </div>
-                      </td>
-                    </tr>
+                        <span className="text-xs text-muted-foreground">
+                          {tractor.workDone.toFixed(1)}/{tractor.farmSize} ha
+                        </span>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="flex justify-end gap-1.5">
+                        <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs"
+                          onClick={() => handleViewDetails(tractor)}>
+                          Details
+                        </Button>
+                        <Button variant="ghost" size="sm"
+                          className="h-7 px-2.5 text-xs text-status-maintenance hover:bg-status-maintenance/10 hover:text-status-maintenance"
+                          onClick={() => handleMaintenance(tractor.tractorId)}>
+                          Service
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
+        <SheetContent className="w-full overflow-y-auto sm:max-w-[520px]">
+          <SheetHeader className="mb-5">
+            <SheetTitle className="flex items-center gap-2 text-lg">
+              <Tractor className="h-5 w-5 text-primary" />
+              <span className="ident text-base">{selectedTractor?.tractorId}</span>
+            </SheetTitle>
+            <SheetDescription>Detailed telemetry and operational status</SheetDescription>
+          </SheetHeader>
+
+          {selectedTractor && (
+            <div className="space-y-6">
+              <div className="surface-sunken flex items-center justify-between p-3">
+                <span className="text-xs text-muted-foreground">Current status</span>
+                <StatusBadge tone={activityTone(selectedTractor.activity)} dot>
+                  {selectedTractor.activity}
+                </StatusBadge>
+              </div>
+
+              <div>
+                <h3 className="eyebrow mb-3">Engine Vitals</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  {[
+                    { icon: <Thermometer />, label: "Engine Temp", value: `${selectedTractor.engineTemp.toFixed(1)}°C`, alert: selectedTractor.engineTemp > 105 },
+                    { icon: <Droplet />, label: "Oil Pressure", value: `${selectedTractor.oilPressure.toFixed(1)} PSI`, alert: false },
+                    { icon: <Gauge />, label: "Hydraulic Load", value: `${selectedTractor.hydraulicLoad.toFixed(1)}%`, alert: selectedTractor.hydraulicLoad > 90 },
+                    { icon: <Activity />, label: "Engine Power", value: `${selectedTractor.enginePower} HP`, alert: false },
+                  ].map((v) => (
+                    <Card key={v.label} className="border-border bg-card-elevated p-3 shadow-none">
+                      <div className="mb-1.5 flex items-center gap-1.5 text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5">
+                        {v.icon}
+                        <span className="text-[11px]">{v.label}</span>
+                      </div>
+                      <div className={`metric-sm ${v.alert ? "text-status-maintenance" : ""}`}>{v.value}</div>
+                    </Card>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </main>
-
-        {/* Tractor Details Sheet */}
-        <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-          <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
-            <SheetHeader className="mb-6">
-              <SheetTitle className="text-2xl font-bold flex items-center gap-2">
-                <Tractor className="w-6 h-6 text-primary" />
-                {selectedTractor?.tractorId}
-              </SheetTitle>
-              <SheetDescription>
-                Detailed telemetry and operational status
-              </SheetDescription>
-            </SheetHeader>
-
-            {selectedTractor && (
-              <div className="space-y-6">
-                {/* Status Badge */}
-                <div className="flex items-center justify-between p-4 bg-accent/10 rounded-lg border border-border/50">
-                  <span className="text-sm font-medium text-muted-foreground">Current Status</span>
-                  {getStatusBadge(selectedTractor.activity)}
                 </div>
+              </div>
 
-                {/* Engine Vital Signs */}
-                <div>
-                  <h3 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Engine Vitals</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Card className="p-4 bg-card/50 border-border/50">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Thermometer className="w-4 h-4 text-status-warning" />
-                        <span className="text-xs text-muted-foreground">Engine Temp</span>
-                      </div>
-                      <div className="text-2xl font-bold text-foreground">{selectedTractor.engineTemp.toFixed(1)}°C</div>
-                    </Card>
-                    <Card className="p-4 bg-card/50 border-border/50">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Droplet className="w-4 h-4 text-status-maintenance" />
-                        <span className="text-xs text-muted-foreground">Oil Pressure</span>
-                      </div>
-                      <div className="text-2xl font-bold text-foreground">{selectedTractor.oilPressure.toFixed(1)} PSI</div>
-                    </Card>
-                    <Card className="p-4 bg-card/50 border-border/50">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Gauge className="w-4 h-4 text-primary" />
-                        <span className="text-xs text-muted-foreground">Hydraulic Load</span>
-                      </div>
-                      <div className="text-2xl font-bold text-foreground">{selectedTractor.hydraulicLoad.toFixed(1)}%</div>
-                    </Card>
-                    <Card className="p-4 bg-card/50 border-border/50">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Activity className="w-4 h-4 text-status-operational" />
-                        <span className="text-xs text-muted-foreground">Engine Power</span>
-                      </div>
-                      <div className="text-2xl font-bold text-foreground">{selectedTractor.enginePower} HP</div>
-                    </Card>
-                  </div>
-                </div>
-
-                {/* Performance Metrics */}
-                <div>
-                  <h3 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Performance</h3>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-foreground">Fuel Level</span>
-                      <span className="text-sm font-bold text-foreground">{selectedTractor.fuelLevel.toFixed(1)}%</span>
+              <div>
+                <h3 className="eyebrow mb-3">Performance</h3>
+                <div className="space-y-4">
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Fuel level</span>
+                      <span className="font-semibold text-foreground">{selectedTractor.fuelLevel.toFixed(1)}%</span>
                     </div>
-                    <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                       <div
-                        className={`h-full ${selectedTractor.fuelLevel < 20 ? 'bg-status-warning' : 'bg-primary'}`}
+                        className={`h-full rounded-full ${selectedTractor.fuelLevel < 20 ? 'bg-status-warning' : 'bg-primary'}`}
                         style={{ width: `${selectedTractor.fuelLevel}%` }}
                       />
                     </div>
-
-                    <div className="flex items-center justify-between mt-4">
-                      <span className="text-sm text-foreground">Work Progress</span>
-                      <span className="text-sm font-bold text-foreground">
+                  </div>
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">Work progress</span>
+                      <span className="font-semibold text-foreground">
                         {selectedTractor.workDone.toFixed(1)} / {selectedTractor.farmSize} ha
                       </span>
                     </div>
-                    <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
                       <div
-                        className="h-full bg-status-operational"
-                        style={{ width: `${(selectedTractor.workDone / selectedTractor.farmSize) * 100}%` }}
+                        className="h-full rounded-full bg-status-operational"
+                        style={{ width: `${Math.min(100, (selectedTractor.workDone / selectedTractor.farmSize) * 100)}%` }}
                       />
                     </div>
                   </div>
                 </div>
+              </div>
 
-                {/* Location */}
-                <div>
-                  <h3 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Location</h3>
-                  <Card className="p-4 bg-card/50 border-border/50 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <MapPin className="w-5 h-5 text-primary" />
-                      <div>
-                        <div className="text-sm font-medium text-foreground">GPS Coordinates</div>
-                        <div className="text-xs text-muted-foreground font-mono">
-                          {selectedTractor.gpsCoordinates.lat.toFixed(6)}, {selectedTractor.gpsCoordinates.lng.toFixed(6)}
-                        </div>
+              <div>
+                <h3 className="eyebrow mb-3">Location</h3>
+                <div className="surface-sunken flex items-center justify-between gap-3 p-3">
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <MapPin className="h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-medium text-foreground">GPS coordinates</div>
+                      <div className="truncate font-mono text-[11px] text-muted-foreground">
+                        {selectedTractor.gpsCoordinates.lat.toFixed(6)}, {selectedTractor.gpsCoordinates.lng.toFixed(6)}
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => navigate('/live-map')}>
-                      View on Map
-                    </Button>
-                  </Card>
-                </div>
-
-                <SheetFooter className="mt-8">
-                  <Button className="w-full" onClick={() => handleMaintenance(selectedTractor.tractorId)}>
-                    Schedule Maintenance
+                  </div>
+                  <Button variant="outline" size="sm" className="h-7 shrink-0 text-xs" onClick={() => navigate('/live-map')}>
+                    View on map
                   </Button>
-                </SheetFooter>
+                </div>
               </div>
-            )}
-          </SheetContent>
-        </Sheet>
-      </div>
-    </div>
+
+              <SheetFooter>
+                <Button className="w-full" onClick={() => handleMaintenance(selectedTractor.tractorId)}>
+                  Schedule maintenance
+                </Button>
+              </SheetFooter>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+    </AppShell>
   );
 };
 

@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
-import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { TopBar } from "@/components/TopBar";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { AppShell, PageHeader, Section } from "@/components/AppShell";
+import { StatCard } from "@/components/StatCard";
+import { StatusBadge, type StatusTone } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
-import { Brain, AlertTriangle, Calendar, Wrench, TrendingUp } from "lucide-react";
+import { Brain, AlertTriangle, Calendar, Wrench, TrendingUp, ShieldCheck } from "lucide-react";
 import { ScheduleMaintenanceModal } from "@/components/ScheduleMaintenanceModal";
+
+const priorityTone = (priority: string): StatusTone =>
+  priority === "critical" ? "critical" : priority === "high" ? "warning" : "operational";
 
 const MaintenanceAI = () => {
   const [searchParams] = useSearchParams();
@@ -44,14 +46,13 @@ const MaintenanceAI = () => {
   ]);
 
   useEffect(() => {
-    // If a tractor was selected from Fleet Overview, add a manual report if not already present
     if (selectedTractorId) {
       setPredictions(prev => {
         if (prev.some(p => p.tractorId === selectedTractorId)) return prev;
         return [
           {
             tractorId: selectedTractorId,
-            model: "Unknown Model", // In a real app, we'd fetch this
+            model: "Unknown Model",
             prediction: "Manual Maintenance Request",
             confidence: 100,
             daysToFailure: 0,
@@ -76,7 +77,9 @@ const MaintenanceAI = () => {
       setPredictions(prev =>
         prev.map(p => ({
           ...p,
-          confidence: p.prediction === "Manual Maintenance Request" ? 100 : Math.min(99, Math.max(70, p.confidence + (Math.random() * 4 - 2))),
+          confidence: p.prediction === "Manual Maintenance Request"
+            ? 100
+            : Math.min(99, Math.max(70, p.confidence + (Math.random() * 4 - 2))),
         }))
       );
     }, 8000);
@@ -84,173 +87,139 @@ const MaintenanceAI = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "critical": return "bg-status-maintenance/20 text-status-maintenance border-status-maintenance";
-      case "high": return "bg-status-warning/20 text-status-warning border-status-warning";
-      default: return "bg-status-operational/20 text-status-operational border-status-operational";
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    return status === "overdue"
-      ? "bg-status-maintenance/20 text-status-maintenance border-status-maintenance"
-      : "bg-status-operational/20 text-status-operational border-status-operational";
-  };
+  const predictedFailures = predictions.filter(p => p.daysToFailure !== null && p.daysToFailure !== undefined).length;
+  const overdueCount = upcomingMaintenance.filter(m => m.status === "overdue").length;
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
-      <DashboardSidebar />
+    <AppShell>
+      <PageHeader
+        title="EagleAI Maintenance Intelligence"
+        description="Physics-based predictive analytics for fleet health monitoring"
+        icon={<Brain />}
+      />
 
-      <div className="flex-1 flex flex-col ml-64">
-        <TopBar />
-
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="mb-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Brain className="w-8 h-8 text-primary" />
-              <h1 className="text-3xl font-bold text-foreground">EagleAI Maintenance Intelligence</h1>
-            </div>
-            <p className="text-muted-foreground">Physics-based predictive analytics for fleet health monitoring</p>
-          </div>
-
-          {/* AI Predictions */}
-          <div className="mb-8">
-            <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-status-warning" />
-              Predictive Maintenance Alerts
-            </h2>
-            <div className="grid grid-cols-1 gap-4">
-              {predictions.map((pred) => (
-                <Card key={pred.tractorId} className="glass-panel p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-bold text-foreground font-mono">{pred.tractorId}</h3>
-                        <Badge className={getPriorityColor(pred.priority)}>
-                          {pred.priority.toUpperCase()}
-                        </Badge>
-                        <Badge variant="outline" className="font-mono">
-                          {pred.confidence.toFixed(1)}% Confidence
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{pred.model}</p>
-                    </div>
-                    {pred.daysToFailure !== null && pred.daysToFailure !== undefined && (
-                      <div className="text-right">
-                        <div className="text-2xl font-bold text-status-maintenance">{pred.daysToFailure}</div>
-                        <div className="text-xs text-muted-foreground">Days to Failure</div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="p-4 bg-accent/10 border border-border/50 rounded-lg mb-4">
-                    <div className="flex items-start gap-2">
-                      <Brain className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="font-semibold text-foreground mb-1">AI Diagnostic:</div>
-                        <div className="text-sm text-foreground">{pred.prediction}</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-2 mb-4">
-                    <Wrench className="w-4 h-4 text-muted-foreground mt-0.5" />
-                    <p className="text-sm text-muted-foreground flex-1">{pred.recommendation}</p>
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      variant="default"
-                      size="sm"
-                      onClick={() => setSelectedTractorForMaintenance(pred.tractorId)}
-                    >
-                      <Calendar className="w-4 h-4 mr-2" />
-                      Schedule Maintenance
-                    </Button>
-                    <Button variant="outline" size="sm">View Details</Button>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-
-          {/* Upcoming Maintenance */}
-          <Card className="glass-panel p-6">
-            <h2 className="text-xl font-bold text-foreground mb-4 flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-primary" />
-              Scheduled Maintenance
-            </h2>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-border/50">
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Tractor ID</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Task</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Due Date</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Status</th>
-                    <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {upcomingMaintenance.map((item, idx) => (
-                    <tr key={idx} className="border-b border-border/30 hover:bg-accent/5 transition-colors">
-                      <td className="py-4 px-4 font-mono font-semibold text-foreground">{item.tractorId}</td>
-                      <td className="py-4 px-4 text-foreground">{item.task}</td>
-                      <td className="py-4 px-4 text-muted-foreground">{item.dueDate}</td>
-                      <td className="py-4 px-4">
-                        <Badge className={getStatusColor(item.status)}>
-                          {item.status === "overdue" ? "OVERDUE" : "Scheduled"}
-                        </Badge>
-                      </td>
-                      <td className="py-4 px-4">
-                        <Button variant="outline" size="sm">Complete</Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          {/* Analytics Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Predicted Failures</span>
-                <AlertTriangle className="w-5 h-5 text-status-maintenance" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">2</div>
-              <div className="text-xs text-muted-foreground mt-2">In next 7 days</div>
-            </Card>
-
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Maintenance Scheduled</span>
-                <Calendar className="w-5 h-5 text-primary" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">4</div>
-              <div className="text-xs text-muted-foreground mt-2">Next 14 days</div>
-            </Card>
-
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">AI Accuracy</span>
-                <TrendingUp className="w-5 h-5 text-status-operational" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">94%</div>
-              <div className="text-xs text-muted-foreground mt-2">Last 90 days</div>
-            </Card>
-          </div>
-        </main>
+      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard
+          label="Predicted Failures"
+          value={predictedFailures}
+          icon={<AlertTriangle />}
+          tone={predictedFailures > 0 ? "critical" : "operational"}
+          detail="In the next 7 days"
+        />
+        <StatCard
+          label="Maintenance Scheduled"
+          value={upcomingMaintenance.length}
+          icon={<Calendar />}
+          tone={overdueCount > 0 ? "warning" : "neutral"}
+          detail={overdueCount > 0 ? `${overdueCount} overdue` : "Next 14 days"}
+        />
+        <StatCard
+          label="Model Accuracy"
+          value="94%"
+          icon={<TrendingUp />}
+          tone="operational"
+          detail="Trailing 90 days"
+        />
       </div>
+
+      <div className="mb-5 space-y-3">
+        <h2 className="flex items-center gap-2 text-[15px] font-semibold text-foreground">
+          <AlertTriangle className="h-4 w-4 text-status-warning" />
+          Predictive Maintenance Alerts
+        </h2>
+
+        {predictions.map((pred) => {
+          const tone = priorityTone(pred.priority);
+          return (
+            <div key={pred.tractorId} className="surface p-5">
+              <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                    <h3 className="ident text-[15px] text-foreground">{pred.tractorId}</h3>
+                    <StatusBadge tone={tone} dot pulse={tone === "critical"}>
+                      {pred.priority.toUpperCase()}
+                    </StatusBadge>
+                    <StatusBadge tone="neutral">{pred.confidence.toFixed(1)}% confidence</StatusBadge>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{pred.model}</p>
+                </div>
+
+                {pred.daysToFailure !== null && pred.daysToFailure !== undefined && (
+                  <div className="text-right">
+                    <div className="metric text-status-maintenance">{pred.daysToFailure}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground">days to failure</div>
+                  </div>
+                )}
+              </div>
+
+              <div className="surface-sunken mb-3 p-3.5">
+                <div className="flex items-start gap-2.5">
+                  {tone === "operational"
+                    ? <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-status-operational" />
+                    : <Brain className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+                  <div className="min-w-0">
+                    <div className="eyebrow mb-1">AI Diagnostic</div>
+                    <div className="text-[13px] font-medium text-foreground">{pred.prediction}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mb-4 flex items-start gap-2">
+                <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <p className="text-[13px] text-muted-foreground">{pred.recommendation}</p>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" className="h-8" onClick={() => setSelectedTractorForMaintenance(pred.tractorId)}>
+                  <Calendar className="mr-1.5 h-3.5 w-3.5" />
+                  Schedule maintenance
+                </Button>
+                <Button variant="outline" size="sm" className="h-8">View details</Button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <Section title="Scheduled Maintenance">
+        <div className="-mx-5 overflow-x-auto px-5">
+          <table className="data-table min-w-[640px]">
+            <thead>
+              <tr>
+                <th>Tractor</th>
+                <th>Task</th>
+                <th>Due Date</th>
+                <th>Status</th>
+                <th className="text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {upcomingMaintenance.map((item, idx) => (
+                <tr key={idx}>
+                  <td><span className="ident text-foreground">{item.tractorId}</span></td>
+                  <td className="text-foreground">{item.task}</td>
+                  <td className="text-muted-foreground">{item.dueDate}</td>
+                  <td>
+                    <StatusBadge tone={item.status === "overdue" ? "critical" : "operational"} dot>
+                      {item.status === "overdue" ? "Overdue" : "Scheduled"}
+                    </StatusBadge>
+                  </td>
+                  <td className="text-right">
+                    <Button variant="outline" size="sm" className="h-7 px-2.5 text-xs">Complete</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
 
       <ScheduleMaintenanceModal
         tractorId={selectedTractorForMaintenance}
         isOpen={!!selectedTractorForMaintenance}
         onClose={() => setSelectedTractorForMaintenance(null)}
       />
-    </div>
+    </AppShell>
   );
 };
 

@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { DashboardSidebar } from '@/components/DashboardSidebar';
-import { TopBar } from '@/components/TopBar';
+import { AppShell } from '@/components/AppShell';
 import MapArea from '@/components/MapArea';
 import { TelemetricsPanel } from '@/components/TelemetricsPanel';
 import { FleetList } from '@/components/FleetList';
@@ -10,35 +9,25 @@ const Index = () => {
   const [selectedTractor, setSelectedTractor] = useState<TractorTelemetry | null>(null);
 
   return (
-    <div className="min-h-screen w-full bg-background">
-      <DashboardSidebar />
-
-      {/* Main Content Area */}
-      <div className="ml-64 min-h-screen flex flex-col">
-        <TopBar />
-
-        {/* Split View: Map (65%) + Telematics (35%) */}
-        <div className="flex-1 flex p-6 gap-6">
-          {/* Map Section */}
-          <div className="flex-[65] min-h-[500px]">
-            <MapArea
-              onTractorSelect={setSelectedTractor}
-              selectedTractorId={selectedTractor?.tractorId || null}
-            />
-          </div>
-
-          {/* Telematics Panel */}
-          <div className="flex-[35] min-h-[500px]">
-            <TelemetricsPanel tractor={selectedTractor} />
-          </div>
+    <AppShell>
+      {/* Map and telemetry sit side by side on wide screens and stack below xl,
+          where a 35% column would be too narrow to read a chart in */}
+      <div className="flex flex-col gap-4 xl:flex-row">
+        <div className="min-h-[420px] flex-1 xl:min-h-[560px] xl:basis-[62%]">
+          <MapArea
+            onTractorSelect={setSelectedTractor}
+            selectedTractorId={selectedTractor?.tractorId || null}
+          />
         </div>
-
-        {/* Fleet List */}
-        <div className="px-6 pb-6">
-          <FleetList onTractorSelect={setSelectedTractor} />
+        <div className="min-h-[420px] xl:min-h-[560px] xl:basis-[38%]">
+          <TelemetricsPanel tractor={selectedTractor} />
         </div>
       </div>
-    </div>
+
+      <div className="mt-4">
+        <FleetList onTractorSelect={setSelectedTractor} />
+      </div>
+    </AppShell>
   );
 };
 

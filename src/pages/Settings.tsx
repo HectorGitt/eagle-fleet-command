@@ -1,6 +1,6 @@
-import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { TopBar } from "@/components/TopBar";
-import { Card } from "@/components/ui/card";
+import { ReactNode } from "react";
+import { useTheme } from "next-themes";
+import { AppShell, PageHeader, Section } from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,231 +8,157 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Settings as SettingsIcon, User, Bell, Shield, Database } from "lucide-react";
 
-const Settings = () => {
+/** One row of a settings group: label, explanation, and its control */
+function SettingRow({
+  title,
+  description,
+  control,
+}: {
+  title: string;
+  description: string;
+  control: ReactNode;
+}) {
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
-      <DashboardSidebar />
-
-      <div className="flex-1 flex flex-col ml-64">
-        <TopBar />
-
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="mb-6">
-            <div className="flex items-center gap-3 mb-2">
-              <SettingsIcon className="w-8 h-8 text-primary" />
-              <h1 className="text-3xl font-bold text-foreground">Settings</h1>
-            </div>
-            <p className="text-muted-foreground">Manage your EagleSight dashboard preferences and configuration</p>
-          </div>
-
-          <Tabs defaultValue="general" className="space-y-6">
-            <TabsList className="glass-panel">
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="notifications">Notifications</TabsTrigger>
-              <TabsTrigger value="security">Security</TabsTrigger>
-              <TabsTrigger value="data">Data & API</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="general" className="space-y-6">
-              <Card className="glass-panel p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <User className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-bold text-foreground">Profile Settings</h3>
-                </div>
-                <div className="space-y-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="company">Company Name</Label>
-                    <Input id="company" defaultValue="AgriTech Solutions Nigeria" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="email">Contact Email</Label>
-                    <Input id="email" type="email" defaultValue="fleet@agritech.ng" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="timezone">Timezone</Label>
-                    <Input id="timezone" defaultValue="Africa/Lagos" />
-                  </div>
-                  <Button>Save Changes</Button>
-                </div>
-              </Card>
-
-              <Card className="glass-panel p-6">
-                <h3 className="text-lg font-bold text-foreground mb-4">Display Preferences</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Dark Mode</div>
-                      <div className="text-sm text-muted-foreground">Use dark theme for dashboard</div>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">High Contrast</div>
-                      <div className="text-sm text-muted-foreground">Increase visual contrast</div>
-                    </div>
-                    <Switch />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Compact View</div>
-                      <div className="text-sm text-muted-foreground">Show more data in less space</div>
-                    </div>
-                    <Switch />
-                  </div>
-                </div>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="notifications" className="space-y-6">
-              <Card className="glass-panel p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Bell className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-bold text-foreground">Alert Preferences</h3>
-                </div>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Critical Alerts</div>
-                      <div className="text-sm text-muted-foreground">Immediate notifications for system failures</div>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Maintenance Warnings</div>
-                      <div className="text-sm text-muted-foreground">Predictive maintenance alerts</div>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Fuel Efficiency Reports</div>
-                      <div className="text-sm text-muted-foreground">Weekly fuel consumption summaries</div>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Daily Digest</div>
-                      <div className="text-sm text-muted-foreground">Fleet status summary every morning</div>
-                    </div>
-                    <Switch />
-                  </div>
-                </div>
-              </Card>
-
-              <Card className="glass-panel p-6">
-                <h3 className="text-lg font-bold text-foreground mb-4">Notification Channels</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Email Notifications</div>
-                      <div className="text-sm text-muted-foreground">Receive alerts via email</div>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">SMS Alerts</div>
-                      <div className="text-sm text-muted-foreground">Critical alerts via SMS</div>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Push Notifications</div>
-                      <div className="text-sm text-muted-foreground">Browser push notifications</div>
-                    </div>
-                    <Switch />
-                  </div>
-                </div>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="security" className="space-y-6">
-              <Card className="glass-panel p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Shield className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-bold text-foreground">Security Settings</h3>
-                </div>
-                <div className="space-y-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="current-password">Current Password</Label>
-                    <Input id="current-password" type="password" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="new-password">New Password</Label>
-                    <Input id="new-password" type="password" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="confirm-password">Confirm Password</Label>
-                    <Input id="confirm-password" type="password" />
-                  </div>
-                  <Button>Update Password</Button>
-                </div>
-              </Card>
-
-              <Card className="glass-panel p-6">
-                <h3 className="text-lg font-bold text-foreground mb-4">Two-Factor Authentication</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Enable 2FA</div>
-                      <div className="text-sm text-muted-foreground">Add extra security to your account</div>
-                    </div>
-                    <Switch />
-                  </div>
-                </div>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="data" className="space-y-6">
-              <Card className="glass-panel p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Database className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-bold text-foreground">API Configuration</h3>
-                </div>
-                <div className="space-y-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="api-key">API Key</Label>
-                    <Input id="api-key" type="password" defaultValue="••••••••••••••••" />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="api-endpoint">API Endpoint</Label>
-                    <Input id="api-endpoint" defaultValue="https://api.eaglesight.ng/v1" />
-                  </div>
-                  <Button variant="outline">Regenerate API Key</Button>
-                </div>
-              </Card>
-
-              <Card className="glass-panel p-6">
-                <h3 className="text-lg font-bold text-foreground mb-4">Data Management</h3>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Auto-sync Telemetry</div>
-                      <div className="text-sm text-muted-foreground">Automatically sync tractor data</div>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium text-foreground">Data Retention</div>
-                      <div className="text-sm text-muted-foreground">Keep historical data for 90 days</div>
-                    </div>
-                    <Switch defaultChecked />
-                  </div>
-                  <div className="mt-4 pt-4 border-t border-border/50">
-                    <Button variant="outline" className="w-full">Export All Data</Button>
-                  </div>
-                </div>
-              </Card>
-            </TabsContent>
-          </Tabs>
-        </main>
+    <div className="flex items-center justify-between gap-4 border-b border-border/60 py-3 last:border-b-0 last:pb-0 first:pt-0">
+      <div className="min-w-0">
+        <div className="text-[13px] font-medium text-foreground">{title}</div>
+        <div className="mt-0.5 text-xs text-muted-foreground">{description}</div>
       </div>
+      <div className="shrink-0">{control}</div>
     </div>
+  );
+}
+
+function Field({ id, label, children }: { id: string; label: string; children: ReactNode }) {
+  return (
+    <div className="grid gap-1.5">
+      <Label htmlFor={id} className="text-xs text-muted-foreground">{label}</Label>
+      {children}
+    </div>
+  );
+}
+
+const Settings = () => {
+  const { resolvedTheme, setTheme } = useTheme();
+
+  return (
+    <AppShell>
+      <PageHeader
+        title="Settings"
+        description="Manage your EagleSight preferences and configuration"
+        icon={<SettingsIcon />}
+      />
+
+      <Tabs defaultValue="general" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="general">General</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
+          <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsTrigger value="data">Data &amp; API</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general" className="space-y-4">
+          <Section title="Profile" actions={<User className="h-4 w-4 text-muted-foreground" />}>
+            <div className="grid max-w-xl gap-4">
+              <Field id="company" label="Company name">
+                <Input id="company" defaultValue="AgriTech Solutions Nigeria" />
+              </Field>
+              <Field id="email" label="Contact email">
+                <Input id="email" type="email" defaultValue="fleet@agritech.ng" />
+              </Field>
+              <Field id="timezone" label="Timezone">
+                <Input id="timezone" defaultValue="Africa/Lagos" />
+              </Field>
+              <div><Button size="sm">Save changes</Button></div>
+            </div>
+          </Section>
+
+          <Section title="Display">
+            {/* This switch used to be decorative - there was no theme provider
+                mounted for it to talk to. It drives the real theme now. */}
+            <SettingRow
+              title="Dark mode"
+              description="Dark suits a control room; light is more readable outdoors"
+              control={
+                <Switch
+                  checked={resolvedTheme === "dark"}
+                  onCheckedChange={(on) => setTheme(on ? "dark" : "light")}
+                  aria-label="Toggle dark mode"
+                />
+              }
+            />
+            <SettingRow
+              title="High contrast"
+              description="Increase visual contrast"
+              control={<Switch />}
+            />
+            <SettingRow
+              title="Compact view"
+              description="Show more data in less space"
+              control={<Switch />}
+            />
+          </Section>
+        </TabsContent>
+
+        <TabsContent value="notifications" className="space-y-4">
+          <Section title="Alert preferences" actions={<Bell className="h-4 w-4 text-muted-foreground" />}>
+            <SettingRow title="Critical alerts" description="Immediate notification on system failures" control={<Switch defaultChecked />} />
+            <SettingRow title="Maintenance warnings" description="Predictive maintenance alerts" control={<Switch defaultChecked />} />
+            <SettingRow title="Fuel efficiency reports" description="Weekly consumption summaries" control={<Switch defaultChecked />} />
+            <SettingRow title="Daily digest" description="Fleet status summary every morning" control={<Switch />} />
+          </Section>
+
+          <Section title="Channels">
+            <SettingRow title="Email" description="Receive alerts by email" control={<Switch defaultChecked />} />
+            <SettingRow title="SMS" description="Critical alerts by text message" control={<Switch defaultChecked />} />
+            <SettingRow title="Push" description="Browser push notifications" control={<Switch />} />
+          </Section>
+        </TabsContent>
+
+        <TabsContent value="security" className="space-y-4">
+          <Section title="Password" actions={<Shield className="h-4 w-4 text-muted-foreground" />}>
+            <div className="grid max-w-xl gap-4">
+              <Field id="current-password" label="Current password">
+                <Input id="current-password" type="password" autoComplete="current-password" />
+              </Field>
+              <Field id="new-password" label="New password">
+                <Input id="new-password" type="password" autoComplete="new-password" />
+              </Field>
+              <Field id="confirm-password" label="Confirm new password">
+                <Input id="confirm-password" type="password" autoComplete="new-password" />
+              </Field>
+              <div><Button size="sm">Update password</Button></div>
+            </div>
+          </Section>
+
+          <Section title="Two-factor authentication">
+            <SettingRow title="Enable 2FA" description="Require a second factor at sign-in" control={<Switch />} />
+          </Section>
+        </TabsContent>
+
+        <TabsContent value="data" className="space-y-4">
+          <Section title="API configuration" actions={<Database className="h-4 w-4 text-muted-foreground" />}>
+            <div className="grid max-w-xl gap-4">
+              <Field id="api-key" label="API key">
+                <Input id="api-key" type="password" defaultValue="••••••••••••••••" />
+              </Field>
+              <Field id="api-endpoint" label="API endpoint">
+                <Input id="api-endpoint" defaultValue="https://api.eaglesight.ng/v1" />
+              </Field>
+              <div><Button variant="outline" size="sm">Regenerate API key</Button></div>
+            </div>
+          </Section>
+
+          <Section title="Data management">
+            <SettingRow title="Auto-sync telemetry" description="Continuously sync machine data" control={<Switch defaultChecked />} />
+            <SettingRow title="Data retention" description="Keep historical data for 90 days" control={<Switch defaultChecked />} />
+            <div className="mt-4 border-t border-border pt-4">
+              <Button variant="outline" size="sm" className="w-full sm:w-auto">Export all data</Button>
+            </div>
+          </Section>
+        </TabsContent>
+      </Tabs>
+    </AppShell>
   );
 };
 
