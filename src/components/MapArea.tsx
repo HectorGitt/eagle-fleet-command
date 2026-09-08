@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { useTheme } from 'next-themes';
 import { useFleet } from '@/context/FleetContext';
+import { TILE_ATTRIBUTION, tileUrlFor } from '@/lib/basemap';
 import { type TractorTelemetry } from '@/lib/telemetry';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { StatusDot } from '@/components/StatusBadge';
 import { Tractor } from 'lucide-react';
 
 // Fix for default marker icons in Leaflet with Vite/Webpack
@@ -20,19 +23,23 @@ const DefaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// Helper to create a custom icon that matches the previous design
-const createTractorIcon = (tractor: TractorTelemetry, isActive: boolean) => {
-  let colorClass = "text-status-operational"; // green-500
-  let bgColor = "#22c55e";
+// Status token -> literal colour. Leaflet builds this marker as an HTML
+// string outside React, so the badge colour cannot come from a Tailwind class.
+const statusColor = (activity: string) => {
+  const token =
+    activity === 'Maintenance' ? '--status-maintenance'
+      : activity === 'Idle' ? '--status-warning'
+        : '--status-operational';
+  const value = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+  return value ? `hsl(${value})` : '#22c55e';
+};
 
-  if (tractor.activity === "Maintenance") {
-    colorClass = "text-status-maintenance"; // red-500
-    bgColor = "#ef4444";
-  }
-  if (tractor.activity === "Idle") {
-    colorClass = "text-status-warning"; // yellow-500
-    bgColor = "#eab308";
-  }
+const createTractorIcon = (tractor: TractorTelemetry, isActive: boolean) => {
+  const colorClass =
+    tractor.activity === 'Maintenance' ? 'text-status-maintenance'
+      : tractor.activity === 'Idle' ? 'text-status-warning'
+        : 'text-status-operational';
+  const bgColor = statusColor(tractor.activity);
 
   const activeClass = isActive ? 'scale-125' : '';
 
@@ -64,12 +71,14 @@ interface MapAreaProps {
 
 export default function MapArea({ onTractorSelect, selectedTractorId }: MapAreaProps) {
   const { tractors } = useFleet();
+  const { resolvedTheme } = useTheme();
+  const tileUrl = tileUrlFor(resolvedTheme);
 
   // Ogun State Center (Abeokuta area)
   const mapCenter: [number, number] = [7.15, 3.35];
 
   return (
-    <div className="flex-1 h-full relative overflow-hidden rounded-lg z-0 border border-border/50 shadow-lg">
+    <div className="surface relative z-0 h-full flex-1 overflow-hidden">
       <MapContainer
         center={mapCenter}
         zoom={10}
@@ -77,10 +86,7 @@ export default function MapArea({ onTractorSelect, selectedTractorId }: MapAreaP
         className="z-0"
         zoomControl={false}
       >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        />
+        <TileLayer key={tileUrl} url={tileUrl} attribution={TILE_ATTRIBUTION} />
 
         {tractors.map((tractor) => (
           <Marker
@@ -114,29 +120,24 @@ export default function MapArea({ onTractorSelect, selectedTractorId }: MapAreaP
       </MapContainer>
 
       {/* Overlay Info */}
-      <div className="absolute top-4 right-4 glass-panel p-4 rounded-lg z-[400] pointer-events-none">
-        <div className="text-right">
-          <p className="text-lg font-bold text-primary">LIVE MAP VIEW</p>
-          <p className="text-xs text-muted-foreground">Ogun State Agricultural Zone</p>
-          <p className="text-[10px] text-muted-foreground mt-1 font-mono">
-            {mapCenter[0]}°N, {mapCenter[1]}°E
-          </p>
-        </div>
+      <div className="surface-raised pointer-events-none absolute right-3 top-3 z-[400] px-3 py-2 text-right">
+        <p className="eyebrow">Live Map View</p>
+        <p className="mt-0.5 text-xs font-medium text-foreground">Ogun State Agricultural Zone</p>
+        <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+          {mapCenter[0]}°N, {mapCenter[1]}°E
+        </p>
       </div>
 
       {/* Map Controls / Legend */}
-      <div className="absolute bottom-6 left-6 glass-panel p-3 rounded-lg space-y-2 z-[400]">
-        <div className="flex items-center gap-2 text-xs">
-          <div className="w-3 h-3 rounded-full bg-status-operational" />
-          <span>Operational</span>
+      <div className="surface-raised absolute bottom-3 left-3 z-[400] space-y-1.5 px-3 py-2">
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <StatusDot tone="operational" /> Operational
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <div className="w-3 h-3 rounded-full bg-warning" />
-          <span>Warning</span>
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <StatusDot tone="warning" /> Idle
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <div className="w-3 h-3 rounded-full bg-status-maintenance" />
-          <span>Maintenance</span>
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <StatusDot tone="critical" /> Maintenance
         </div>
       </div>
     </div>

@@ -1,28 +1,39 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useFleet } from "@/context/FleetContext";
-import { DashboardSidebar } from "@/components/DashboardSidebar";
-import { TopBar } from "@/components/TopBar";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { AppShell, PageHeader, Section } from "@/components/AppShell";
+import { StatCard } from "@/components/StatCard";
+import { StatusBadge } from "@/components/StatusBadge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { Fuel, TrendingDown, TrendingUp, DollarSign, Leaf, Info } from "lucide-react";
+import { Fuel, TrendingUp, Coins, Leaf, Info } from "lucide-react";
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+
+const FUEL_PRICE_NGN = 800;
+
+/** Shared Recharts theming so every chart in the app reads the same tokens */
+const axisProps = {
+  stroke: "hsl(var(--muted-foreground))",
+  fontSize: 11,
+  tickLine: false,
+  axisLine: false,
+};
+
+const tooltipStyle = {
+  backgroundColor: "hsl(var(--popover))",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: "8px",
+  fontSize: "12px",
+  color: "hsl(var(--popover-foreground))",
+};
 
 const FuelAnalytics = () => {
   const { tractors } = useFleet();
 
-  // Constants
-  const FUEL_PRICE_NGN = 800;
-
-  // Calculate Real-time KPIs
   const totalFuelConsumed = tractors.reduce((acc, t) => acc + t.fuelConsumed, 0);
   const totalWorkDone = tractors.reduce((acc, t) => acc + t.workDone, 0);
   const totalCost = totalFuelConsumed * FUEL_PRICE_NGN;
   const avgEfficiency = totalFuelConsumed > 0 ? (totalWorkDone / totalFuelConsumed) : 0;
 
-  // Mock historical data for charts (since we don't have a backend history yet)
-  // In a real app, this would come from an API based on the live data aggregation
   const [fuelConsumption] = useState([
     { day: "Mon", consumption: 450, cost: 450 * 800, efficiency: 0.92 },
     { day: "Tue", consumption: 480, cost: 480 * 800, efficiency: 0.89 },
@@ -33,181 +44,152 @@ const FuelAnalytics = () => {
     { day: "Sun", consumption: 340, cost: 340 * 800, efficiency: 0.97 },
   ]);
 
-  // Prepare chart data from live tractors
   const tractorComparison = tractors.slice(0, 5).map(t => ({
     id: t.tractorId,
-    consumption: t.fuelConsumed,
-    efficiency: t.efficiency * 100, // Scale for chart visibility
-    cost: t.fuelConsumed * FUEL_PRICE_NGN
+    consumption: Number(t.fuelConsumed.toFixed(1)),
+    efficiency: Number(t.efficiency.toFixed(2)),
   }));
 
+  const ranked = [...tractors].sort((a, b) => b.efficiency - a.efficiency).slice(0, 3);
+
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
-      <DashboardSidebar />
+    <AppShell>
+      <PageHeader
+        title="Fuel Analytics"
+        description="Consumption, efficiency and cost across the fleet"
+        icon={<Fuel />}
+      />
 
-      <div className="flex-1 flex flex-col ml-64">
-        <TopBar />
-
-        <main className="flex-1 p-6 overflow-auto">
-          <div className="mb-6">
-            <div className="flex items-center gap-3 mb-2">
-              <Fuel className="w-8 h-8 text-primary" />
-              <h1 className="text-3xl font-bold text-foreground">Fuel Analytics</h1>
-            </div>
-            <p className="text-muted-foreground">Monitor fuel consumption, efficiency, and cost optimization across your fleet</p>
-          </div>
-
-          {/* KPI Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Total Consumption</span>
-                <Fuel className="w-5 h-5 text-primary" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">{totalFuelConsumed.toFixed(1)}L</div>
-              <div className="flex items-center mt-2 text-xs text-status-operational">
-                <TrendingDown className="w-3 h-3 mr-1" />
-                <span>Live Accumulation</span>
-              </div>
-            </Card>
-
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">Avg Efficiency</span>
-                <TrendingUp className="w-5 h-5 text-status-operational" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">{avgEfficiency.toFixed(2)} ha/L</div>
-              <div className="flex items-center mt-2 text-xs text-status-operational">
-                <TrendingUp className="w-3 h-3 mr-1" />
-                <span>Work per Litre</span>
-              </div>
-            </Card>
-
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-muted-foreground">Total Cost</span>
-                  <UITooltip>
-                    <TooltipTrigger>
-                      <Info className="w-3 h-3 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Calculated at ₦{FUEL_PRICE_NGN}/Litre</p>
-                    </TooltipContent>
-                  </UITooltip>
-                </div>
-                <DollarSign className="w-5 h-5 text-status-warning" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">₦{totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
-              <div className="flex items-center mt-2 text-xs text-muted-foreground">
-                <span>Current Session</span>
-              </div>
-            </Card>
-
-            <Card className="glass-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-muted-foreground">CO₂ Saved</span>
-                <Leaf className="w-5 h-5 text-status-operational" />
-              </div>
-              <div className="text-3xl font-bold text-foreground">{(totalFuelConsumed * 2.68 * 0.1).toFixed(1)}kg</div>
-              <div className="flex items-center mt-2 text-xs text-status-operational">
-                <span>Est. vs Old Fleet</span>
-              </div>
-            </Card>
-          </div>
-
-          {/* Charts */}
-          <Tabs defaultValue="comparison" className="mb-8">
-            <TabsList className="glass-panel">
-              <TabsTrigger value="comparison">Live Tractor Comparison</TabsTrigger>
-              <TabsTrigger value="consumption">Weekly Trends (Simulated)</TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="comparison" className="mt-6">
-              <Card className="glass-panel p-6">
-                <h3 className="text-lg font-bold text-foreground mb-4">Real-time Fuel Consumption by Tractor</h3>
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={tractorComparison}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                    <XAxis dataKey="id" stroke="hsl(var(--muted-foreground))" />
-                    <YAxis stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--background))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "8px",
-                      }}
-                    />
-                    <Legend />
-                    <Bar dataKey="consumption" fill="hsl(var(--primary))" name="Consumption (L)" />
-                    <Bar dataKey="cost" fill="hsl(var(--status-warning))" name="Cost (₦)" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="consumption" className="mt-6">
-              <Card className="glass-panel p-6">
-                <h3 className="text-lg font-bold text-foreground mb-4">Weekly Fuel Consumption</h3>
-                <ResponsiveContainer width="100%" height={350}>
-                  <AreaChart data={fuelConsumption}>
-                    <defs>
-                      <linearGradient id="consumptionGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.3} />
-                    <XAxis dataKey="day" stroke="hsl(var(--muted-foreground))" />
-                    <YAxis stroke="hsl(var(--muted-foreground))" />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "hsl(var(--background))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: "8px",
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="consumption"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth={2}
-                      fill="url(#consumptionGradient)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </Card>
-            </TabsContent>
-          </Tabs>
-
-          {/* Top Performers */}
-          <Card className="glass-panel p-6">
-            <h3 className="text-lg font-bold text-foreground mb-4">Top Fuel-Efficient Tractors (Live)</h3>
-            <div className="space-y-3">
-              {tractors
-                .sort((a, b) => b.efficiency - a.efficiency)
-                .slice(0, 3)
-                .map((tractor, idx) => (
-                  <div key={tractor.tractorId} className="flex items-center justify-between p-4 bg-accent/10 rounded-lg">
-                    <div className="flex items-center gap-4">
-                      <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center font-bold text-primary">
-                        {idx + 1}
-                      </div>
-                      <div>
-                        <div className="font-mono font-semibold text-foreground">{tractor.tractorId}</div>
-                        <div className="text-sm text-muted-foreground">{tractor.fuelConsumed.toFixed(1)}L consumed</div>
-                      </div>
-                    </div>
-                    <Badge className="bg-status-operational/20 text-status-operational border-status-operational">
-                      {tractor.efficiency.toFixed(2)} ha/L
-                    </Badge>
-                  </div>
-                ))}
-            </div>
-          </Card>
-        </main>
+      <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Total Consumption"
+          value={totalFuelConsumed.toFixed(1)}
+          unit="L"
+          icon={<Fuel />}
+          detail="Live accumulation this session"
+        />
+        <StatCard
+          label="Avg Efficiency"
+          value={avgEfficiency.toFixed(2)}
+          unit="ha/L"
+          icon={<TrendingUp />}
+          tone="operational"
+          detail="Work per litre burnt"
+        />
+        <StatCard
+          label="Total Cost"
+          value={`₦${totalCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+          icon={<Coins />}
+          tone="warning"
+          detail={
+            <span className="inline-flex items-center gap-1">
+              At ₦{FUEL_PRICE_NGN}/L
+              <UITooltip>
+                <TooltipTrigger asChild>
+                  <button type="button" aria-label="How this is calculated">
+                    <Info className="h-3 w-3 cursor-help" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Litres consumed × ₦{FUEL_PRICE_NGN} per litre</p>
+                </TooltipContent>
+              </UITooltip>
+            </span>
+          }
+        />
+        <StatCard
+          label="CO₂ Avoided"
+          value={(totalFuelConsumed * 2.68 * 0.1).toFixed(1)}
+          unit="kg"
+          icon={<Leaf />}
+          tone="operational"
+          detail="Estimated vs. previous fleet"
+        />
       </div>
-    </div>
+
+      <Tabs defaultValue="comparison" className="mb-5">
+        <TabsList>
+          <TabsTrigger value="comparison">Live comparison</TabsTrigger>
+          <TabsTrigger value="consumption">Weekly trend</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="comparison" className="mt-4">
+          <Section
+            title="Fuel consumption by tractor"
+            description="Litres burnt and hectares per litre, per machine"
+          >
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={tractorComparison} margin={{ top: 4, right: 0, bottom: 0, left: -12 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="id" {...axisProps} />
+                {/* Litres and hectares-per-litre differ by two orders of
+                    magnitude. On one axis the efficiency bars flatten the
+                    consumption bars into nothing, so each series gets its own. */}
+                <YAxis yAxisId="litres" {...axisProps} />
+                <YAxis yAxisId="efficiency" orientation="right" {...axisProps} />
+                <Tooltip contentStyle={tooltipStyle} cursor={{ fill: "hsl(var(--muted) / 0.5)" }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                {/* Categorical colours, not status colours - these bars label a
+                    machine, they do not report its health */}
+                <Bar yAxisId="litres" dataKey="consumption" fill="hsl(var(--cat-1))" name="Consumption (L)" radius={[3, 3, 0, 0]} />
+                <Bar yAxisId="efficiency" dataKey="efficiency" fill="hsl(var(--cat-3))" name="Efficiency (ha/L)" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Section>
+        </TabsContent>
+
+        <TabsContent value="consumption" className="mt-4">
+          <Section title="Weekly fuel consumption" description="Simulated history pending a backend feed">
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={fuelConsumption} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
+                <defs>
+                  <linearGradient id="consumptionGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--cat-1))" stopOpacity={0.35} />
+                    <stop offset="95%" stopColor="hsl(var(--cat-1))" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                <XAxis dataKey="day" {...axisProps} />
+                <YAxis {...axisProps} />
+                <Tooltip contentStyle={tooltipStyle} />
+                <Area
+                  type="monotone"
+                  dataKey="consumption"
+                  name="Consumption (L)"
+                  stroke="hsl(var(--cat-1))"
+                  strokeWidth={2}
+                  fill="url(#consumptionGradient)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </Section>
+        </TabsContent>
+      </Tabs>
+
+      <Section title="Most fuel-efficient machines" description="Ranked live by hectares per litre">
+        <div className="space-y-2">
+          {ranked.length === 0 && (
+            <p className="py-6 text-center text-sm text-muted-foreground">Waiting for telemetry…</p>
+          )}
+          {ranked.map((tractor, idx) => (
+            <div key={tractor.tractorId} className="surface-sunken flex items-center justify-between gap-3 p-3">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-xs font-semibold text-primary-glow">
+                  {idx + 1}
+                </div>
+                <div className="min-w-0">
+                  <div className="ident text-foreground">{tractor.tractorId}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {tractor.fuelConsumed.toFixed(1)} L consumed
+                  </div>
+                </div>
+              </div>
+              <StatusBadge tone="operational">{tractor.efficiency.toFixed(2)} ha/L</StatusBadge>
+            </div>
+          ))}
+        </div>
+      </Section>
+    </AppShell>
   );
 };
 

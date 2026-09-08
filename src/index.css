@@ -2,73 +2,172 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
+/*
+  EagleSight design system.
+
+  Colour discipline is the whole point here. This is an operations console: a
+  fleet manager scans it to find out what is wrong, so saturated colour has to
+  mean something.
+
+    - Brand (lime-olive green) marks interactive affordances only: primary
+      buttons, active nav, focus rings. It never encodes state.
+    - Status colours are the only other saturated colours, and each means
+      exactly one thing: operational / idle / critical / info.
+    - Categorical colours label job types and tractor routes. Deliberately
+      contains no green, so a category swatch can never be mistaken for a
+      health signal.
+
+  All colours are HSL channel triplets so Tailwind can apply opacity to them.
 */
 
 @layer base {
   :root {
-    /* Industrial Professional - Dark Mode Base */
-    --background: 215 25% 12%;
-    --foreground: 210 20% 92%;
+    /* ---- Light: daylight and field use ---- */
+    --background: 210 20% 97%;
+    --foreground: 222 30% 12%;
 
-    --card: 215 25% 15%;
-    --card-foreground: 210 20% 92%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 30% 12%;
+    --card-elevated: 210 20% 99%;
 
-    --popover: 215 28% 10%;
-    --popover-foreground: 210 20% 92%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 30% 12%;
 
-    /* Deep Forest Green - Primary Brand */
-    --primary: 95 48% 20%;
-    --primary-foreground: 95 20% 95%;
-    --primary-glow: 95 48% 35%;
+    /* Brand: lime-olive, the crop green. Interactive affordances only. */
+    --primary: 88 46% 30%;
+    --primary-foreground: 88 40% 98%;
+    --primary-glow: 88 50% 38%;
+    --primary-subtle: 88 44% 88%;
 
-    /* Slate Gray - Secondary Surfaces */
-    --secondary: 215 20% 20%;
-    --secondary-foreground: 210 20% 92%;
+    --secondary: 215 16% 93%;
+    --secondary-foreground: 222 25% 20%;
 
-    --muted: 215 25% 18%;
-    --muted-foreground: 215 15% 60%;
+    --muted: 214 18% 94%;
+    --muted-foreground: 220 12% 40%;
 
-    /* Accent - Mission Control Blue */
-    --accent: 200 80% 45%;
-    --accent-foreground: 210 20% 98%;
+    --accent: 214 18% 94%;
+    --accent-foreground: 222 25% 20%;
 
-    /* Alert Colors */
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 20% 98%;
-    
-    --warning: 38 92% 50%;
-    --warning-foreground: 38 10% 10%;
-    
-    --success: 142 71% 45%;
-    --success-foreground: 142 10% 98%;
+    --destructive: 358 68% 46%;
+    --destructive-foreground: 0 0% 100%;
 
-    /* Borders & Inputs */
-    --border: 215 20% 22%;
-    --input: 215 20% 22%;
-    --ring: 95 48% 35%;
+    --border: 220 14% 87%;
+    --border-strong: 220 14% 78%;
+    --input: 220 14% 87%;
+    --ring: 88 50% 38%;
 
     --radius: 0.5rem;
 
-    /* Sidebar */
-    --sidebar-background: 215 28% 10%;
-    --sidebar-foreground: 210 15% 75%;
-    --sidebar-primary: 95 48% 20%;
-    --sidebar-primary-foreground: 95 20% 95%;
-    --sidebar-accent: 215 25% 15%;
-    --sidebar-accent-foreground: 210 20% 92%;
-    --sidebar-border: 215 20% 18%;
-    --sidebar-ring: 95 48% 35%;
+    /* ---- Status: one meaning each ---- */
+    --status-operational: 160 62% 30%;
+    --status-warning: 34 90% 38%;
+    --status-idle: 34 90% 38%;
+    --status-maintenance: 358 68% 46%;
+    --status-info: 210 84% 42%;
 
-    /* Glassmorphism */
-    --glass-bg: 215 25% 15% / 0.7;
-    --glass-border: 215 20% 30% / 0.3;
-    
-    /* Status Colors */
-    --status-operational: 142 71% 45%;
-    --status-maintenance: 0 72% 51%;
-    --status-idle: 38 92% 50%;
+    /* Tinted backgrounds for status chips, kept light enough for dark text */
+    --status-operational-bg: 160 50% 94%;
+    --status-warning-bg: 34 90% 94%;
+    --status-maintenance-bg: 358 80% 96%;
+    --status-info-bg: 210 90% 95%;
+
+    /* Legacy aliases still referenced by shadcn primitives */
+    --warning: var(--status-warning);
+    --warning-foreground: 0 0% 100%;
+    --success: var(--status-operational);
+    --success-foreground: 0 0% 100%;
+
+    /* ---- Categorical: job types and route identity. No green. ---- */
+    --cat-1: 214 78% 46%;
+    --cat-2: 268 52% 52%;
+    --cat-3: 192 80% 36%;
+    --cat-4: 26 82% 46%;
+    --cat-5: 330 62% 50%;
+
+    /* ---- Sidebar ---- */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 12% 38%;
+    --sidebar-primary: 88 46% 30%;
+    --sidebar-primary-foreground: 88 40% 98%;
+    --sidebar-accent: 214 18% 94%;
+    --sidebar-accent-foreground: 222 30% 12%;
+    --sidebar-border: 220 14% 89%;
+    --sidebar-ring: 88 50% 38%;
+
+    /* ---- Elevation ---- */
+    --shadow-sm: 0 1px 2px 0 hsl(222 30% 12% / 0.06);
+    --shadow-md: 0 2px 8px -2px hsl(222 30% 12% / 0.10), 0 1px 2px hsl(222 30% 12% / 0.05);
+    --shadow-lg: 0 12px 32px -8px hsl(222 30% 12% / 0.16);
+  }
+
+  .dark {
+    /* ---- Dark: the control room ---- */
+    --background: 222 22% 8%;
+    --foreground: 210 24% 96%;
+
+    --card: 222 20% 11%;
+    --card-foreground: 210 24% 96%;
+    --card-elevated: 222 18% 14%;
+
+    --popover: 222 22% 10%;
+    --popover-foreground: 210 24% 96%;
+
+    --primary: 88 50% 48%;
+    --primary-foreground: 90 60% 8%;
+    --primary-glow: 88 58% 58%;
+    --primary-subtle: 88 40% 16%;
+
+    --secondary: 222 16% 17%;
+    --secondary-foreground: 210 20% 92%;
+
+    --muted: 222 16% 15%;
+    --muted-foreground: 218 12% 66%;
+
+    --accent: 222 16% 17%;
+    --accent-foreground: 210 20% 92%;
+
+    --destructive: 358 72% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 222 14% 20%;
+    --border-strong: 222 12% 30%;
+    --input: 222 14% 22%;
+    --ring: 88 50% 48%;
+
+    --status-operational: 160 60% 46%;
+    --status-warning: 38 92% 58%;
+    --status-idle: 38 92% 58%;
+    --status-maintenance: 358 72% 62%;
+    --status-info: 210 90% 64%;
+
+    --status-operational-bg: 160 45% 14%;
+    --status-warning-bg: 38 60% 14%;
+    --status-maintenance-bg: 358 50% 16%;
+    --status-info-bg: 210 60% 16%;
+
+    --warning: var(--status-warning);
+    --warning-foreground: 38 90% 8%;
+    --success: var(--status-operational);
+    --success-foreground: 160 60% 8%;
+
+    --cat-1: 214 82% 62%;
+    --cat-2: 268 60% 68%;
+    --cat-3: 192 78% 52%;
+    --cat-4: 26 86% 60%;
+    --cat-5: 330 68% 64%;
+
+    --sidebar-background: 222 24% 10%;
+    --sidebar-foreground: 218 12% 68%;
+    --sidebar-primary: 88 50% 48%;
+    --sidebar-primary-foreground: 90 60% 8%;
+    --sidebar-accent: 222 16% 16%;
+    --sidebar-accent-foreground: 210 24% 96%;
+    --sidebar-border: 222 14% 18%;
+    --sidebar-ring: 88 50% 48%;
+
+    --shadow-sm: 0 1px 2px 0 hsl(0 0% 0% / 0.4);
+    --shadow-md: 0 2px 8px -2px hsl(0 0% 0% / 0.5), 0 1px 2px hsl(0 0% 0% / 0.3);
+    --shadow-lg: 0 12px 32px -8px hsl(0 0% 0% / 0.6);
   }
 }
 
@@ -79,29 +178,197 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+      'Inter', 'Roboto', 'Helvetica Neue', sans-serif;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  /* Live telemetry re-renders every few seconds. Proportional digits make the
+     numbers jitter as they change width, so every figure is tabular. */
+  body {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Headings carry weight, not size alone - an ops console has little room */
+  h1, h2, h3, h4 {
+    @apply font-semibold tracking-tight text-foreground;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* The console is scroll-heavy; default light scrollbars break the dark shell */
+  * {
+    scrollbar-color: hsl(var(--border-strong)) transparent;
+    scrollbar-width: thin;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: hsl(var(--border-strong));
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: hsl(var(--muted-foreground) / 0.6);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Flat layered surfaces. The previous design blurred a backdrop that was
+     always opaque anyway - all cost, no effect. */
+  .surface {
+    @apply bg-card border border-border rounded-lg;
+  }
+
+  .surface-raised {
+    @apply bg-card-elevated border border-border rounded-lg;
+    box-shadow: var(--shadow-md);
+  }
+
+  .surface-sunken {
+    @apply bg-muted/50 border border-border/60 rounded-lg;
+  }
+
+  /* Section label above a group of controls or metrics */
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground;
+  }
+
+  /* A single large figure - KPI values, gauge readouts */
+  .metric {
+    @apply text-[28px] leading-none font-semibold tracking-tight text-foreground;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .metric-sm {
+    @apply text-xl leading-none font-semibold tracking-tight text-foreground;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Identifiers (tractor IDs, coordinates) read as data, not prose */
+  .ident {
+    @apply font-mono text-[13px] font-medium tracking-tight;
+  }
+
+  .data-table {
+    @apply w-full text-left;
+  }
+
+  .data-table thead th {
+    @apply py-2.5 px-4 text-[11px] font-semibold uppercase tracking-[0.06em]
+           text-muted-foreground border-b border-border;
+  }
+
+  .data-table tbody td {
+    @apply py-3 px-4 border-b border-border/60 align-middle;
+  }
+
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .data-table tbody tr {
+    @apply transition-colors;
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-muted/40;
+  }
+}
+
+@layer components {
+  /*
+    Leaflet ships its own light chrome: a #ddd container, white zoom buttons and
+    white popups. None of it tracked the theme, so every map had a pale frame
+    around it in dark mode.
+  */
+  .leaflet-container {
+    background: hsl(var(--muted));
+    font-family: inherit;
+    font-size: 12px;
+  }
+
+  /*
+    Esri's dark canvas still reads lighter than this shell, so the map looked
+    like a lightbox dropped into the page. Scoped to the tile pane, so route
+    lines and markers in the overlay pane keep their exact token colours.
+  */
+  .dark .leaflet-tile-pane {
+    filter: brightness(0.62) saturate(0.85);
+  }
+
+  .leaflet-bar a,
+  .leaflet-bar a:hover {
+    background-color: hsl(var(--card));
+    color: hsl(var(--foreground));
+    border-bottom-color: hsl(var(--border));
+  }
+
+  .leaflet-bar a:hover {
+    background-color: hsl(var(--muted));
+  }
+
+  .leaflet-bar {
+    border: 1px solid hsl(var(--border));
+    box-shadow: var(--shadow-sm);
+  }
+
+  .leaflet-control-attribution {
+    background: hsl(var(--card) / 0.85) !important;
+    color: hsl(var(--muted-foreground)) !important;
+    font-size: 10px;
+  }
+
+  .leaflet-control-attribution a {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+
+  .leaflet-popup-content-wrapper,
+  .leaflet-popup-tip {
+    background: hsl(var(--popover));
+    color: hsl(var(--popover-foreground));
+    box-shadow: var(--shadow-lg);
+    border-radius: var(--radius);
+  }
+
+  .leaflet-popup-content {
+    margin: 10px 12px;
+    font-size: 12px;
+  }
+
+  .leaflet-container a.leaflet-popup-close-button {
+    color: hsl(var(--muted-foreground));
   }
 }
 
 @layer utilities {
-  .glass-panel {
-    @apply bg-card/70 backdrop-blur-xl border border-border/50;
-  }
-  
-  .glass-panel-strong {
-    @apply bg-card/90 backdrop-blur-2xl border border-border/60;
-  }
-  
   .status-pulse {
-    animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    animation: status-pulse 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
-  
-  @keyframes pulse-glow {
-    0%, 100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: 0.5;
-    }
+
+  @keyframes status-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
   }
 }

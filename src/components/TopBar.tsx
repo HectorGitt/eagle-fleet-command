@@ -1,52 +1,82 @@
-import { Activity, AlertTriangle, TrendingUp } from 'lucide-react';
+import { useFleet } from '@/context/FleetContext';
+import { StatusDot } from '@/components/StatusBadge';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { cn } from '@/lib/utils';
 
-interface StatCardProps {
-  label: string;
-  value: string | number;
-  icon: React.ReactNode;
-  variant?: 'default' | 'warning';
+/** A tractor is running hot enough to need attention now */
+const isCritical = (engineTemp: number) => engineTemp > 105;
+
+function Metric({
+    label,
+    value,
+    tone = 'neutral',
+}: {
+    label: string;
+    value: string;
+    tone?: 'neutral' | 'critical';
+}) {
+    return (
+        <div className="flex flex-col gap-0.5">
+            <span className="text-[10px] font-medium uppercase tracking-[0.07em] text-muted-foreground">
+                {label}
+            </span>
+            <span
+                className={cn(
+                    'text-[15px] font-semibold leading-none tracking-tight',
+                    tone === 'critical' ? 'text-status-maintenance' : 'text-foreground'
+                )}
+            >
+                {value}
+            </span>
+        </div>
+    );
 }
 
-function StatCard({ label, value, icon, variant = 'default' }: StatCardProps) {
-  return (
-    <div className="glass-panel px-6 py-3 rounded-lg flex items-center gap-4">
-      <div
-        className={`p-2 rounded-lg ${
-          variant === 'warning' ? 'bg-warning/20 text-warning' : 'bg-primary/20 text-primary-glow'
-        }`}
-      >
-        {icon}
-      </div>
-      <div>
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className="text-2xl font-bold text-foreground">{value}</p>
-      </div>
-    </div>
-  );
-}
-
+/**
+ * A thin status strip, not a second dashboard.
+ *
+ * The old bar rendered three large KPI tiles with hardcoded values - 42 units,
+ * 88%, 2 alerts - directly above pages that computed the real figures from
+ * telemetry and disagreed with it. These come from the same context the pages
+ * read, so the header can no longer contradict the page under it.
+ */
 export function TopBar() {
-  return (
-    <div className="h-20 glass-panel-strong border-b border-border/60 flex items-center justify-between px-8">
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-success status-pulse" />
-        <span className="text-sm text-muted-foreground">Live Telemetry Active</span>
-      </div>
+    const { tractors } = useFleet();
 
-      <div className="flex items-center gap-6">
-        <StatCard label="Active Units" value={42} icon={<Activity className="w-5 h-5" />} />
-        <StatCard
-          label="Fleet Utilization"
-          value="88%"
-          icon={<TrendingUp className="w-5 h-5" />}
-        />
-        <StatCard
-          label="Critical Alerts"
-          value={2}
-          icon={<AlertTriangle className="w-5 h-5" />}
-          variant="warning"
-        />
-      </div>
-    </div>
-  );
+    const total = tractors.length;
+    const active = tractors.filter(
+        (t) => t.activity !== 'Idle' && t.activity !== 'Maintenance'
+    ).length;
+    const alerts = tractors.filter((t) => isCritical(t.engineTemp)).length;
+    const utilization = total > 0 ? Math.round((active / total) * 100) : 0;
+
+    return (
+        <header
+            className={cn(
+                'sticky top-0 z-30 flex h-14 items-center justify-between gap-4',
+                'border-b border-border bg-background/85 backdrop-blur',
+                'pl-16 pr-4 lg:px-6' // room for the drawer trigger below lg
+            )}
+        >
+            <div className="flex min-w-0 items-center gap-2">
+                <StatusDot tone="operational" pulse />
+                <span className="truncate text-xs text-muted-foreground">
+                    Live telemetry active
+                </span>
+            </div>
+
+            <div className="flex items-center gap-5 sm:gap-7">
+                <div className="hidden items-center gap-5 sm:flex sm:gap-7">
+                    <Metric label="Active" value={total > 0 ? `${active}/${total}` : '—'} />
+                    <Metric label="Utilization" value={total > 0 ? `${utilization}%` : '—'} />
+                </div>
+                <Metric
+                    label="Alerts"
+                    value={total > 0 ? String(alerts) : '—'}
+                    tone={alerts > 0 ? 'critical' : 'neutral'}
+                />
+                <ThemeToggle />
+            </div>
+        </header>
+    );
 }

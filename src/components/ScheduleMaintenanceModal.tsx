@@ -32,7 +32,7 @@ export function ScheduleMaintenanceModal({ tractorId, isOpen, onClose }: Schedul
             setIsLoading(false);
             toast.success("Maintenance Scheduled", {
                 description: `${formData.type} maintenance for ${tractorId} scheduled on ${formData.date}.`,
-                icon: <CheckCircle className="w-5 h-5 text-green-500" />,
+                icon: <CheckCircle className="h-5 w-5 text-status-operational" />,
             });
             onClose();
         }, 1000);
@@ -40,7 +40,7 @@ export function ScheduleMaintenanceModal({ tractorId, isOpen, onClose }: Schedul
 
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent className="sm:max-w-[425px] glass-panel border-border/50">
+            <DialogContent className="sm:max-w-[425px]">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Calendar className="w-5 h-5 text-primary" />
