@@ -39,7 +39,16 @@ function MiniChart({ title, data, color, unit, currentValue, gradientId }: MiniC
                         </linearGradient>
                     </defs>
                     <XAxis dataKey="time" hide />
-                    <YAxis hide domain={['dataMin', 'dataMax']} />
+                    {/* dataMin/dataMax pins the extremes to the top and bottom
+                        edges, so the stroke is half clipped there and a flat
+                        series collapses onto the boundary. Pad the domain. */}
+                    <YAxis
+                        hide
+                        domain={[
+                            (min: number) => min - Math.max(Math.abs(min) * 0.04, 0.5),
+                            (max: number) => max + Math.max(Math.abs(max) * 0.04, 0.5),
+                        ]}
+                    />
                     <Tooltip
                         contentStyle={{
                             backgroundColor: 'hsl(var(--popover))',
@@ -68,6 +77,34 @@ interface TelemetricsPanelProps {
     tractor: TractorTelemetry | null;
 }
 
+const HISTORY_POINTS = 20;
+const TICK_MS = 3000;
+
+/**
+ * Build a plausible past for a freshly selected machine.
+ *
+ * Telemetry arrives one reading every 3s, so a chart seeded empty draws a
+ * single dot and stays that way until the next tick - a minute before the
+ * trace fills. Walk backwards from the live value using the same bounded
+ * step and clamp the generator applies, so the opening trace has the right
+ * shape and never leaves the instrument's range.
+ */
+const seedHistory = (current: number, step: number, min: number, max: number): ChartData[] => {
+    const now = Date.now();
+    const values: number[] = [current];
+
+    for (let i = 1; i < HISTORY_POINTS; i++) {
+        const drift = values[0] + (Math.random() * step - step / 2);
+        values.unshift(Math.max(min, Math.min(max, drift)));
+    }
+
+    return values.map((value, i) => ({
+        time: new Date(now - (HISTORY_POINTS - 1 - i) * TICK_MS)
+            .toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+        value,
+    }));
+};
+
 export function TelemetricsPanel({ tractor }: TelemetricsPanelProps) {
     const [engineTempHistory, setEngineTempHistory] = useState<ChartData[]>([]);
     const [oilPressureHistory, setOilPressureHistory] = useState<ChartData[]>([]);
@@ -76,13 +113,24 @@ export function TelemetricsPanel({ tractor }: TelemetricsPanelProps) {
 
     const selectedId = tractor?.tractorId;
 
-    // Switching machines has to clear the traces, otherwise the new tractor's
-    // chart opens with the previous one's history still drawn on it
+    // Switching machines has to replace the traces, otherwise the new tractor's
+    // chart opens with the previous one's history still drawn on it. Seeding
+    // rather than clearing means the chart is a line from the first frame.
     useEffect(() => {
-        setEngineTempHistory([]);
-        setOilPressureHistory([]);
-        setHydraulicLoadHistory([]);
-        setLoadValues([]);
+        if (!tractor) {
+            setEngineTempHistory([]);
+            setOilPressureHistory([]);
+            setHydraulicLoadHistory([]);
+            setLoadValues([]);
+            return;
+        }
+
+        setEngineTempHistory(seedHistory(tractor.engineTemp, 4, 80, 115));
+        setOilPressureHistory(seedHistory(tractor.oilPressure, 4, 25, 65));
+        setHydraulicLoadHistory(seedHistory(tractor.hydraulicLoad, 10, 0, 100));
+        setLoadValues(Array.from({ length: 10 }, () => tractor.hydraulicLoad));
+        // Seeded from the reading live at selection time; later ticks append.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedId]);
 
     useEffect(() => {
@@ -90,9 +138,9 @@ export function TelemetricsPanel({ tractor }: TelemetricsPanelProps) {
 
         const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
-        setEngineTempHistory((prev) => [...prev, { time: timeStr, value: tractor.engineTemp }].slice(-20));
-        setOilPressureHistory((prev) => [...prev, { time: timeStr, value: tractor.oilPressure }].slice(-20));
-        setHydraulicLoadHistory((prev) => [...prev, { time: timeStr, value: tractor.hydraulicLoad }].slice(-20));
+        setEngineTempHistory((prev) => [...prev, { time: timeStr, value: tractor.engineTemp }].slice(-HISTORY_POINTS));
+        setOilPressureHistory((prev) => [...prev, { time: timeStr, value: tractor.oilPressure }].slice(-HISTORY_POINTS));
+        setHydraulicLoadHistory((prev) => [...prev, { time: timeStr, value: tractor.hydraulicLoad }].slice(-HISTORY_POINTS));
         setLoadValues((prev) => [...prev, tractor.hydraulicLoad].slice(-10));
     }, [tractor]);
 
