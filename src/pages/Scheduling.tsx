@@ -3,7 +3,19 @@ import { useTheme } from "next-themes";
 import { AppShell, PageHeader, Section } from "@/components/AppShell";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
+import { useFleet } from "@/context/FleetContext";
 import { Button } from "@/components/ui/button";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
     Dialog,
     DialogContent,
@@ -11,7 +23,6 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    DialogTrigger,
 } from "@/components/ui/dialog";
 import {
     Select,
@@ -32,7 +43,9 @@ import {
     Fuel,
     Tractor,
     Plus,
-    Search
+    Search,
+    Trash2,
+    Home
 } from "lucide-react";
 import { toast } from "sonner";
 import { TILE_ATTRIBUTION, tileUrlFor } from "@/lib/basemap";
@@ -58,6 +71,19 @@ const DEPOT: [number, number] = [6.615, 3.355];
 // Working day rendered by the Gantt chart, and the default window for new jobs
 const DAY_START = 6;
 const DAY_END = 18;
+
+// The seed below only describes the three machines that start with work. Every
+// other tractor in the fleet is still schedulable, so it joins the board empty
+// with these stand-in specs rather than being invisible to the planner.
+const FLEET_MODELS = ['John Deere 6M', 'Case IH Magnum', 'New Holland T7', 'Massey Ferguson 8S', 'Fendt 700 Vario'];
+const DEFAULT_MAX_HOURS = 8;
+const DEFAULT_MAINTENANCE_DUE_IN = 100;
+
+// Stable per-machine model so the board does not reshuffle on a telemetry tick
+const modelFor = (tractorId: string) => {
+    const suffix = Number(tractorId.replace(/\D/g, ''));
+    return FLEET_MODELS[(Number.isFinite(suffix) ? suffix : 0) % FLEET_MODELS.length];
+};
 
 const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:8000").replace(/\/+$/, "");
 
@@ -105,6 +131,19 @@ interface OptimizationStats {
     distanceSource?: DistanceSource;
 }
 
+// The add/edit dialog's working copy of a job. Coordinates are null until a
+// pin is dropped, so an unplaced job can never be mistaken for one at the depot.
+interface JobForm {
+    tractorId: string;
+    fieldId: string;
+    type: string;
+    durationHours: number;
+    latitude: number | null;
+    longitude: number | null;
+    timeWindowStart: number;
+    timeWindowEnd: number;
+}
+
 // Machines the solver removed from the pool before routing
 interface GroundedTractor {
     tractorId: string;
@@ -115,10 +154,14 @@ interface GroundedTractor {
     };
 }
 
-// Location Picker Component
-const LocationPicker = ({ onLocationSelect }: { onLocationSelect: (lat: number, lng: number, name?: string) => void }) => {
+// Location Picker Component. `value` prefills the pin when an existing job is
+// reopened for editing, so the map never contradicts the job it belongs to.
+const LocationPicker = ({ value, onLocationSelect }: {
+    value: [number, number] | null;
+    onLocationSelect: (lat: number, lng: number, name?: string) => void;
+}) => {
     const { resolvedTheme } = useTheme();
-    const [position, setPosition] = useState<[number, number] | null>(null);
+    const [position, setPosition] = useState<[number, number] | null>(value);
     const [searchQuery, setSearchQuery] = useState("");
     const [isSearching, setIsSearching] = useState(false);
 
@@ -162,7 +205,13 @@ const LocationPicker = ({ onLocationSelect }: { onLocationSelect: (lat: number, 
                 const { lat, lng } = e.latlng;
                 setPosition([lat, lng]);
 
-                // Reverse Geocode
+                // Register the pin before the network call. Nominatim regularly
+                // takes seconds, and until it answered the form still read "no
+                // location chosen" with a pin sitting on the map - so saving was
+                // refused for a location the user could plainly see they'd picked.
+                onLocationSelect(lat, lng);
+
+                // The reverse geocode only suggests a name; the pin already counts
                 try {
                     const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
                     const data = await response.json();
@@ -170,7 +219,7 @@ const LocationPicker = ({ onLocationSelect }: { onLocationSelect: (lat: number, 
                     onLocationSelect(lat, lng, name);
                     toast.success("Location Selected", { description: name });
                 } catch (error) {
-                    onLocationSelect(lat, lng);
+                    // Losing the suggestion is fine - the coordinates are already set
                 }
             },
         });
@@ -191,7 +240,7 @@ const LocationPicker = ({ onLocationSelect }: { onLocationSelect: (lat: number, 
                 </Button>
             </div>
             <div className="h-[200px] w-full rounded-md overflow-hidden border border-input relative">
-                <MapContainer center={DEPOT} zoom={13} style={{ height: '100%', width: '100%' }}>
+                <MapContainer center={value ?? DEPOT} zoom={13} style={{ height: '100%', width: '100%' }}>
                     <TileLayer url={tileUrlFor(resolvedTheme)} attribution={TILE_ATTRIBUTION} />
                     <MapEvents />
                     <MapController coords={position} />
@@ -283,16 +332,35 @@ const formatHour = (hours: number) => {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
 };
 
-// Numbered pin so the visiting order of a route is readable on the map
-const stopIcon = (color: string, sequence: number) =>
+// Numbered pin so the visiting order of a route is readable on the map. The
+// last stop gets a ring so you can tell where a route ends - every route loops
+// back to the depot, so the line alone never shows which end is which.
+const stopIcon = (color: string, sequence: number, isLast: boolean) =>
     L.divIcon({
         className: '',
-        html: `<div style="background:${color};color:#fff;width:22px;height:22px;border-radius:50%;
+        html: `<div style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+               border-radius:50%;${isLast ? `box-shadow:0 0 0 2px ${color};background:rgba(0,0,0,0.25)` : ''}">
+               <div style="background:${color};color:#fff;width:22px;height:22px;border-radius:50%;
                display:flex;align-items:center;justify-content:center;font:700 11px/1 system-ui;
-               border:2px solid rgba(255,255,255,0.85);box-shadow:0 1px 4px rgba(0,0,0,0.5)">${sequence}</div>`,
-        iconSize: [22, 22],
-        iconAnchor: [11, 11],
+               border:2px solid rgba(255,255,255,0.85);box-shadow:0 1px 4px rgba(0,0,0,0.5)">${sequence}</div></div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15],
     });
+
+// The depot is where every route starts and ends, so it must not look like a
+// stop or borrow a route colour. A white home plate reads at any zoom.
+const depotIcon = L.divIcon({
+    className: '',
+    html: `<div style="width:34px;height:34px;border-radius:50%;background:#fff;
+           border:3px solid #111827;box-shadow:0 2px 8px rgba(0,0,0,0.55);
+           display:flex;align-items:center;justify-content:center">
+           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#111827"
+                stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+             <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/>
+           </svg></div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+});
 
 interface RoadRoute {
     geometry: [number, number][];
@@ -441,6 +509,23 @@ const RouteMap = ({ schedules, distanceSource }: {
                             </div>
                         );
                     })}
+                    {routes.length > 0 && (
+                        <span className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                                <Home className="h-3 w-3" aria-hidden /> depot
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground" aria-hidden />
+                                1 = first stop
+                            </span>
+                            <span className="flex items-center gap-1">
+                                <span className="h-3.5 w-3.5 rounded-full ring-1 ring-muted-foreground p-[2px]" aria-hidden>
+                                    <span className="block h-full w-full rounded-full bg-muted-foreground" />
+                                </span>
+                                ringed = last stop
+                            </span>
+                        </span>
+                    )}
                     {routes.length === 0 && (
                         <span className="text-xs text-muted-foreground">No routed jobs yet</span>
                     )}
@@ -475,11 +560,6 @@ const RouteMap = ({ schedules, distanceSource }: {
                     <TileLayer key={tileUrl} url={tileUrl} attribution={TILE_ATTRIBUTION} />
                     <FitRoutes points={points} boundsKey={boundsKey} />
 
-                    {/* Depot */}
-                    <Marker position={DEPOT}>
-                        <Popup>Depot (Omatsola Complex)</Popup>
-                    </Marker>
-
                     {routes.map((route) => {
                         const road = roadRoutes[route.tractorId];
                         return (
@@ -501,11 +581,12 @@ const RouteMap = ({ schedules, distanceSource }: {
                                 <Marker
                                     key={job.id}
                                     position={[job.latitude, job.longitude]}
-                                    icon={stopIcon(route.color, stopIdx + 1)}
+                                    icon={stopIcon(route.color, stopIdx + 1, stopIdx === route.stops.length - 1)}
                                 >
                                     <Popup>
                                         <strong>{job.fieldId}</strong><br />
-                                        {route.tractorId} &middot; stop {stopIdx + 1} of {route.stops.length}<br />
+                                        {route.tractorId} &middot; stop {stopIdx + 1} of {route.stops.length}
+                                        {stopIdx === route.stops.length - 1 && ' (last before depot)'}<br />
                                         {job.type}<br />
                                         {formatHour(job.startTime)} &ndash; {formatHour(job.startTime + job.durationHours)}
                                     </Popup>
@@ -514,137 +595,272 @@ const RouteMap = ({ schedules, distanceSource }: {
                         </Fragment>
                         );
                     })}
+
+                    {/* Rendered after the routes so the depot plate is never
+                        buried under a polyline that passes through it */}
+                    <Marker position={DEPOT} icon={depotIcon} zIndexOffset={1000}>
+                        <Popup>
+                            <strong>Depot</strong><br />
+                            Omatsola Complex, Alausa<br />
+                            Every route starts and ends here
+                        </Popup>
+                    </Marker>
                 </MapContainer>
             </div>
         </div>
     );
 };
 
-const Scheduling = () => {
-    const [isOptimizing, setIsOptimizing] = useState(false);
-    const [optimizationStats, setOptimizationStats] = useState<OptimizationStats>({
-        totalFuel: 590,
-        efficiency: 45,
-        conflicts: 2
-    });
-    const [unassignedJobs, setUnassignedJobs] = useState<Job[]>([]);
-    const [groundedTractors, setGroundedTractors] = useState<GroundedTractor[]>([]);
-
-    // Initial Data with Real Locations (Ikeja/Alausa Industrial Zone)
-    const [schedules, setSchedules] = useState<TractorSchedule[]>([
-        {
-            tractorId: "T-800",
-            model: "John Deere 6M",
-            maxHours: 8,
-            maintenanceDueIn: 40,
-            jobs: [
-                {
-                    id: "J1",
-                    fieldId: "Oregun Ind. Estate", // 6.620, 3.360 is Oregun
-                    type: "Ploughing",
-                    durationHours: 4,
-                    startTime: 8,
-                    fuelCost: 120,
-                    profit: 500,
-                    status: "scheduled",
-                    latitude: 6.620,
-                    longitude: 3.360,
-                    timeWindowStart: DAY_START,
-                    timeWindowEnd: 12
-                },
-                {
-                    id: "J2",
-                    fieldId: "Alausa Secretariat", // 6.610, 3.350 is near the Secretariat
-                    type: "Harrowing",
-                    durationHours: 3,
-                    startTime: 13,
-                    fuelCost: 80,
-                    profit: 300,
-                    status: "scheduled",
-                    constraintWarning: "High Fuel Usage",
-                    latitude: 6.610,
-                    longitude: 3.350,
-                    timeWindowStart: DAY_START,
-                    timeWindowEnd: DAY_END
-                }
-            ]
-        },
-        {
-            tractorId: "T-803",
-            model: "Case IH Magnum",
-            maxHours: 10,
-            maintenanceDueIn: 5,
-            jobs: [
-                {
-                    id: "J3",
-                    fieldId: "Kudirat Abiola Way", // 6.605, 3.365 is near Ojota/Oregun link
-                    type: "Seeding",
-                    durationHours: 6,
-                    startTime: 9,
-                    fuelCost: 150,
-                    profit: 800,
-                    status: "scheduled",
-                    constraintWarning: "Maintenance Risk",
-                    latitude: 6.605,
-                    longitude: 3.365,
-                    timeWindowStart: DAY_START,
-                    timeWindowEnd: DAY_END
-                }
-            ]
-        },
-        {
-            tractorId: "T-806",
-            model: "New Holland T7",
-            maxHours: 8,
-            maintenanceDueIn: 100,
-            jobs: [
-                {
-                    id: "J4",
-                    fieldId: "Agidingbi Project", // 6.625, 3.345 is Agidingbi area
-                    type: "Harvesting",
-                    durationHours: 5,
-                    startTime: 7,
-                    fuelCost: 100,
-                    profit: 1200,
-                    status: "scheduled",
-                    latitude: 6.625,
-                    longitude: 3.345,
-                    timeWindowStart: DAY_START,
-                    timeWindowEnd: DAY_END
-                },
-                {
-                    id: "J5",
-                    fieldId: "Oregun Ind. Estate", // Returning to Oregun
-                    type: "Seeding",
-                    durationHours: 2,
-                    startTime: 14,
-                    fuelCost: 40,
-                    profit: 200,
-                    status: "scheduled",
-                    latitude: 6.620,
-                    longitude: 3.360,
-                    timeWindowStart: 10,
-                    timeWindowEnd: DAY_END
-                }
-            ]
-        }
-    ]);
-
-    // New Job Form State
-    const [isAddJobOpen, setIsAddJobOpen] = useState(false);
-    const emptyJobForm = {
+// Seed board, kept at module scope so Reset can restore it without a page reload
+const INITIAL_SCHEDULES: TractorSchedule[] = [
+    {
         tractorId: "T-800",
+        model: "John Deere 6M",
+        maxHours: 8,
+        maintenanceDueIn: 40,
+        jobs: [
+            {
+                id: "J1",
+                fieldId: "Oregun Ind. Estate", // 6.620, 3.360 is Oregun
+                type: "Ploughing",
+                durationHours: 4,
+                startTime: 8,
+                fuelCost: 120,
+                profit: 500,
+                status: "scheduled",
+                latitude: 6.620,
+                longitude: 3.360,
+                timeWindowStart: DAY_START,
+                timeWindowEnd: 12
+            },
+            {
+                id: "J2",
+                fieldId: "Alausa Secretariat", // 6.610, 3.350 is near the Secretariat
+                type: "Harrowing",
+                durationHours: 3,
+                startTime: 13,
+                fuelCost: 80,
+                profit: 300,
+                status: "scheduled",
+                constraintWarning: "High Fuel Usage",
+                latitude: 6.610,
+                longitude: 3.350,
+                timeWindowStart: DAY_START,
+                timeWindowEnd: DAY_END
+            }
+        ]
+    },
+    {
+        tractorId: "T-803",
+        model: "Case IH Magnum",
+        maxHours: 10,
+        maintenanceDueIn: 5,
+        jobs: [
+            {
+                id: "J3",
+                fieldId: "Kudirat Abiola Way", // 6.605, 3.365 is near Ojota/Oregun link
+                type: "Seeding",
+                durationHours: 6,
+                startTime: 9,
+                fuelCost: 150,
+                profit: 800,
+                status: "scheduled",
+                constraintWarning: "Maintenance Risk",
+                latitude: 6.605,
+                longitude: 3.365,
+                timeWindowStart: DAY_START,
+                timeWindowEnd: DAY_END
+            }
+        ]
+    },
+    {
+        tractorId: "T-806",
+        model: "New Holland T7",
+        maxHours: 8,
+        maintenanceDueIn: 100,
+        jobs: [
+            {
+                id: "J4",
+                fieldId: "Agidingbi Project", // 6.625, 3.345 is Agidingbi area
+                type: "Harvesting",
+                durationHours: 5,
+                startTime: 7,
+                fuelCost: 100,
+                profit: 1200,
+                status: "scheduled",
+                latitude: 6.625,
+                longitude: 3.345,
+                timeWindowStart: DAY_START,
+                timeWindowEnd: DAY_END
+            },
+            {
+                id: "J5",
+                fieldId: "Oregun Ind. Estate", // Returning to Oregun
+                type: "Seeding",
+                durationHours: 2,
+                startTime: 14,
+                fuelCost: 40,
+                profit: 200,
+                status: "scheduled",
+                latitude: 6.620,
+                longitude: 3.360,
+                timeWindowStart: 10,
+                timeWindowEnd: DAY_END
+            }
+        ]
+    }
+];
+
+const INITIAL_STATS: OptimizationStats = {
+    totalFuel: 590,
+    efficiency: 45,
+    conflicts: 2
+};
+
+// A day's planning is real work now that jobs can be added, edited and moved,
+// so the board outlives a refresh. Per-browser only - this is not a server.
+const STORAGE_KEY = 'eaglesight.scheduling.board.v1';
+
+interface PersistedBoard {
+    schedules: TractorSchedule[];
+    unassignedJobs: Job[];
+    groundedTractors: GroundedTractor[];
+    optimizationStats: OptimizationStats;
+}
+
+// Stats travel with the board: restoring solved routes under seed numbers would
+// have the timeline and the stat cards describing different days.
+const loadBoard = (): PersistedBoard | null => {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        // Guard the shape - a half-written or stale entry should fall back to
+        // the seed rather than crash the page on mount
+        if (!Array.isArray(parsed?.schedules)) return null;
+        return {
+            schedules: parsed.schedules,
+            unassignedJobs: Array.isArray(parsed.unassignedJobs) ? parsed.unassignedJobs : [],
+            groundedTractors: Array.isArray(parsed.groundedTractors) ? parsed.groundedTractors : [],
+            optimizationStats: parsed.optimizationStats ?? INITIAL_STATS,
+        };
+    } catch {
+        // Private browsing, cleared site data, or blocked storage
+        return null;
+    }
+};
+
+const Scheduling = () => {
+    // Read once on mount; every piece of board state initialises from it
+    const [restored] = useState(loadBoard);
+
+    const [isOptimizing, setIsOptimizing] = useState(false);
+    const [optimizationStats, setOptimizationStats] = useState<OptimizationStats>(
+        () => restored?.optimizationStats ?? INITIAL_STATS
+    );
+    const [unassignedJobs, setUnassignedJobs] = useState<Job[]>(
+        () => restored?.unassignedJobs ?? []
+    );
+    const [groundedTractors, setGroundedTractors] = useState<GroundedTractor[]>(
+        () => restored?.groundedTractors ?? []
+    );
+
+    const [schedules, setSchedules] = useState<TractorSchedule[]>(
+        () => restored?.schedules ?? structuredClone(INITIAL_SCHEDULES)
+    );
+
+    // Persist the whole board on every change
+    useEffect(() => {
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                schedules,
+                unassignedJobs,
+                groundedTractors,
+                optimizationStats,
+            }));
+        } catch {
+            // Storage full or blocked - the board still works for this session
+        }
+    }, [schedules, unassignedJobs, groundedTractors, optimizationStats]);
+
+    // Every machine the fleet reports is schedulable, not just the seeded three.
+    // Merge is additive and keyed by id, so a telemetry tick never touches the
+    // jobs already on the board.
+    const { tractors: fleet } = useFleet();
+    useEffect(() => {
+        if (fleet.length === 0) return;
+        setSchedules(prev => {
+            // Grounded machines were deliberately pulled from the pool by the
+            // solver - they belong in their own panel, not back on the timeline
+            const known = new Set([
+                ...prev.map(t => t.tractorId),
+                ...groundedTractors.map(g => g.tractorId),
+            ]);
+            const additions = fleet
+                .filter(t => !known.has(t.tractorId))
+                .map(t => ({
+                    tractorId: t.tractorId,
+                    model: modelFor(t.tractorId),
+                    maxHours: DEFAULT_MAX_HOURS,
+                    maintenanceDueIn: DEFAULT_MAINTENANCE_DUE_IN,
+                    jobs: [] as Job[],
+                }));
+            if (additions.length === 0) return prev;
+            return [...prev, ...additions].sort((a, b) => a.tractorId.localeCompare(b.tractorId));
+        });
+    }, [fleet, groundedTractors]);
+
+    // Job Form State. One dialog serves both create and edit; `editingJobId`
+    // is the mode switch, and null coordinates mean nothing has been pinned yet.
+    const [isJobDialogOpen, setIsJobDialogOpen] = useState(false);
+    const [editingJobId, setEditingJobId] = useState<string | null>(null);
+    const emptyJobForm: JobForm = {
+        tractorId: schedules[0]?.tractorId ?? "T-800",
         fieldId: "",
         type: "Ploughing",
         durationHours: 2,
-        latitude: DEPOT[0],
-        longitude: DEPOT[1],
+        latitude: null,
+        longitude: null,
         timeWindowStart: DAY_START,
         timeWindowEnd: DAY_END
     };
-    const [newJob, setNewJob] = useState(emptyJobForm);
+    const [newJob, setNewJob] = useState<JobForm>(emptyJobForm);
 
-    const handleAddJob = () => {
+    const openNewJob = () => {
+        setEditingJobId(null);
+        setNewJob({ ...emptyJobForm, tractorId: newJob.tractorId });
+        setIsJobDialogOpen(true);
+    };
+
+    // Reopen an existing job — from a timeline bar or an unassigned card
+    const openExistingJob = (job: Job, tractorId: string) => {
+        setEditingJobId(job.id);
+        setNewJob({
+            tractorId,
+            fieldId: job.fieldId,
+            type: job.type,
+            durationHours: job.durationHours,
+            latitude: job.latitude ?? null,
+            longitude: job.longitude ?? null,
+            timeWindowStart: job.timeWindowStart ?? DAY_START,
+            timeWindowEnd: job.timeWindowEnd ?? DAY_END,
+        });
+        setIsJobDialogOpen(true);
+    };
+
+    // Every job currently on the board, wherever it lives
+    const allJobs = useMemo(
+        () => [...schedules.flatMap(t => t.jobs), ...unassignedJobs],
+        [schedules, unassignedJobs]
+    );
+
+    const closeJobDialog = () => {
+        setIsJobDialogOpen(false);
+        setEditingJobId(null);
+        setNewJob({ ...emptyJobForm, tractorId: newJob.tractorId }); // Don't carry the last pin into the next job
+    };
+
+    const handleSaveJob = () => {
         if (!newJob.fieldId) {
             toast.error("Please enter a field name");
             return;
@@ -661,35 +877,68 @@ const Scheduling = () => {
             return;
         }
 
+        // Without a pin the job would route to the depot and appear to cost
+        // nothing to reach, which reads as a real plan but is not one
+        if (newJob.latitude === null || newJob.longitude === null) {
+            toast.error("Pick a location", {
+                description: "Search for the field or click the map to drop a pin."
+            });
+            return;
+        }
+
+        const windowStart = Number(newJob.timeWindowStart);
+        const windowEnd = Number(newJob.timeWindowEnd);
+        const existing = editingJobId ? allJobs.find(j => j.id === editingJobId) : undefined;
+
         const job: Job = {
-            id: `J${Date.now()}`,
+            id: existing?.id ?? `J${Date.now()}`,
             fieldId: newJob.fieldId,
             type: newJob.type as Job["type"],
             durationHours: Number(newJob.durationHours),
-            startTime: Number(newJob.timeWindowStart), // Initial guess
-            fuelCost: 50,
-            profit: 100,
+            // Keep the solved start when it still fits the window, else pull it back in
+            startTime: Math.min(Math.max(existing?.startTime ?? windowStart, windowStart), windowEnd),
+            fuelCost: existing?.fuelCost ?? 50,
+            profit: existing?.profit ?? 100,
             status: "scheduled",
+            // constraintWarning is deliberately not carried over: it described the
+            // job before the edit, and only another solve can confirm it still holds
             latitude: newJob.latitude,
             longitude: newJob.longitude,
-            timeWindowStart: Number(newJob.timeWindowStart),
-            timeWindowEnd: Number(newJob.timeWindowEnd)
+            timeWindowStart: windowStart,
+            timeWindowEnd: windowEnd
         };
 
+        // One path covers create, edit in place, move between machines, and
+        // promoting a job back out of the unassigned pile
         setSchedules(prev => prev.map(t => {
+            const withoutJob = t.jobs.filter(j => j.id !== job.id);
             if (t.tractorId === newJob.tractorId) {
-                return {
-                    ...t,
-                    jobs: [...t.jobs, job]
-                };
+                return { ...t, jobs: [...withoutJob, job].sort((a, b) => a.startTime - b.startTime) };
             }
-            return t;
+            return withoutJob.length === t.jobs.length ? t : { ...t, jobs: withoutJob };
         }));
+        setUnassignedJobs(prev => prev.filter(j => j.id !== job.id));
 
-        setIsAddJobOpen(false);
-        setNewJob({ ...emptyJobForm, tractorId: newJob.tractorId }); // Don't carry the last pin into the next job
-        toast.success("Job Added", {
+        closeJobDialog();
+        toast.success(existing ? "Job Updated" : "Job Added", {
             description: `${job.type} at ${job.fieldId} (${job.latitude.toFixed(3)}, ${job.longitude.toFixed(3)})`
+        });
+    };
+
+    const handleDeleteJob = () => {
+        if (!editingJobId) return;
+        const removed = allJobs.find(j => j.id === editingJobId);
+
+        setSchedules(prev => prev.map(t => (
+            t.jobs.some(j => j.id === editingJobId)
+                ? { ...t, jobs: t.jobs.filter(j => j.id !== editingJobId) }
+                : t
+        )));
+        setUnassignedJobs(prev => prev.filter(j => j.id !== editingJobId));
+
+        closeJobDialog();
+        toast.success("Job Removed", {
+            description: removed ? `${removed.type} at ${removed.fieldId}` : undefined
         });
     };
 
@@ -746,7 +995,21 @@ const Scheduling = () => {
         }
     };
 
-    const resetSimulation = () => window.location.reload();
+    // A page reload used to be the reset. Now that the board is persisted a
+    // reload would restore the very plan being discarded, so clear it explicitly.
+    const resetSimulation = () => {
+        try {
+            localStorage.removeItem(STORAGE_KEY);
+        } catch {
+            // Nothing stored to clear
+        }
+        setSchedules(structuredClone(INITIAL_SCHEDULES));
+        setUnassignedJobs([]);
+        setGroundedTractors([]);
+        setOptimizationStats(INITIAL_STATS);
+        closeJobDialog();
+        toast.success("Schedule Reset", { description: "Back to the starting plan." });
+    };
 
     return (
         <AppShell>
@@ -756,16 +1019,17 @@ const Scheduling = () => {
                 icon={<Calendar />}
                 actions={
                     <>
-                        <Dialog open={isAddJobOpen} onOpenChange={setIsAddJobOpen}>
-                            <DialogTrigger asChild>
-                                <Button variant="outline" size="sm" className="h-8 gap-1.5">
-                                    <Plus className="h-3.5 w-3.5" />
-                                    Add job
-                                </Button>
-                            </DialogTrigger>
+                        <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={openNewJob}>
+                            <Plus className="h-3.5 w-3.5" />
+                            Add job
+                        </Button>
+                        <Dialog
+                            open={isJobDialogOpen}
+                            onOpenChange={(open) => (open ? setIsJobDialogOpen(true) : closeJobDialog())}
+                        >
                                 <DialogContent className="max-w-2xl">
                                     <DialogHeader>
-                                        <DialogTitle>Add New Job</DialogTitle>
+                                        <DialogTitle>{editingJobId ? "Edit Job" : "Add New Job"}</DialogTitle>
                                         <DialogDescription>
                                             Pick a location on the map and set time constraints.
                                         </DialogDescription>
@@ -851,31 +1115,68 @@ const Scheduling = () => {
 
                                         <div>
                                             <Label>Location (Search or Click on map)</Label>
-                                            <div className="text-xs text-muted-foreground mb-1">
-                                                Selected: {newJob.latitude.toFixed(4)}, {newJob.longitude.toFixed(4)}
+                                            <div className={`mb-1 text-xs ${
+                                                newJob.latitude === null ? 'text-status-maintenance' : 'text-muted-foreground'
+                                            }`}>
+                                                {newJob.latitude !== null && newJob.longitude !== null
+                                                    ? `Selected: ${newJob.latitude.toFixed(4)}, ${newJob.longitude.toFixed(4)}`
+                                                    : 'No location chosen yet — search for the field or click the map.'}
                                             </div>
                                             <LocationPicker
+                                                key={editingJobId ?? 'new'}
+                                                value={newJob.latitude !== null && newJob.longitude !== null
+                                                    ? [newJob.latitude, newJob.longitude]
+                                                    : null}
                                                 onLocationSelect={(lat, lng, name) => {
                                                     setNewJob(prev => ({
                                                         ...prev,
                                                         latitude: lat,
                                                         longitude: lng,
-                                                        fieldId: name || prev.fieldId // Auto-fill name if provided
+                                                        // Only fill a blank name - never overwrite one already typed
+                                                        fieldId: prev.fieldId || name || ""
                                                     }));
                                                 }}
                                             />
                                         </div>
                                     </div>
-                                    <DialogFooter>
-                                        <Button onClick={handleAddJob}>Save Job</Button>
+                                    <DialogFooter className="sm:justify-between">
+                                        {editingJobId ? (
+                                            <Button variant="destructive" className="gap-1.5" onClick={handleDeleteJob}>
+                                                <Trash2 className="h-4 w-4" />
+                                                Delete job
+                                            </Button>
+                                        ) : <span />}
+                                        <Button onClick={handleSaveJob}>
+                                            {editingJobId ? "Save changes" : "Save Job"}
+                                        </Button>
                                     </DialogFooter>
                                 </DialogContent>
                             </Dialog>
 
-                        <Button variant="outline" size="sm" className="h-8" onClick={resetSimulation} disabled={isOptimizing}>
-                            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                            Reset
-                        </Button>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="outline" size="sm" className="h-8" disabled={isOptimizing}>
+                                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                                    Reset
+                                </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Reset the schedule?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        This discards the saved plan &mdash; every job you have added,
+                                        edited or moved &mdash; and restores the starting schedule.
+                                        It cannot be undone.
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel>Keep my plan</AlertDialogCancel>
+                                    <AlertDialogAction onClick={resetSimulation}>
+                                        Reset schedule
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
+                        </AlertDialog>
                         <Button size="sm" className="h-8" onClick={runOptimization} disabled={isOptimizing}>
                             {isOptimizing ? (
                                 <>
@@ -934,13 +1235,19 @@ const Scheduling = () => {
                         </h2>
                     </div>
                     <p className="mb-3 text-xs text-muted-foreground">
-                        No machine had a feasible slot for this work. Extend a shift, widen the
-                        time window, or move it to another day.
+                        No machine had a feasible slot for this work. Click a job to widen its
+                        time window, put it on another machine, or drop it.
                     </p>
                     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
                         {unassignedJobs.map((job) => (
-                            <div key={job.id} className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-3">
-                                <div className="flex items-start justify-between gap-2">
+                            <button
+                                key={job.id}
+                                type="button"
+                                onClick={() => openExistingJob(job, newJob.tractorId)}
+                                title="Click to edit or reassign"
+                                className="flex flex-col gap-1.5 rounded-md border border-border bg-card p-3 text-left transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+                            >
+                                <div className="flex w-full items-start justify-between gap-2">
                                     <span className="text-[13px] font-medium text-foreground">{job.fieldId}</span>
                                     <StatusBadge tone="critical">Unassigned</StatusBadge>
                                 </div>
@@ -952,7 +1259,7 @@ const Scheduling = () => {
                                         {job.constraintWarning}
                                     </div>
                                 )}
-                            </div>
+                            </button>
                         ))}
                     </div>
                 </div>
@@ -1070,10 +1377,12 @@ const Scheduling = () => {
                                                 const widthPercent = ((visibleEnd - visibleStart) / span) * 100;
 
                                                 return (
-                                                    <div
+                                                    <button
                                                         key={job.id}
-                                                        title={`${job.fieldId} - ${job.type}, ${formatHour(job.startTime)}-${formatHour(job.startTime + job.durationHours)}`}
-                                                        className="absolute bottom-1 top-1 flex cursor-default flex-col justify-center overflow-hidden rounded border px-2 transition-shadow hover:shadow-md"
+                                                        type="button"
+                                                        onClick={() => openExistingJob(job, tractor.tractorId)}
+                                                        title={`${job.fieldId} - ${job.type}, ${formatHour(job.startTime)}-${formatHour(job.startTime + job.durationHours)} (click to edit)`}
+                                                        className="absolute bottom-1 top-1 flex cursor-pointer flex-col justify-center overflow-hidden rounded border px-2 text-left transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
                                                         style={{
                                                             left: `${leftPercent}%`,
                                                             width: `${widthPercent}%`,
@@ -1094,7 +1403,7 @@ const Scheduling = () => {
                                                                 <AlertTriangle className="h-2.5 w-2.5" />
                                                             </div>
                                                         )}
-                                                    </div>
+                                                    </button>
                                                 );
                                             })}
                                         </div>
